@@ -1,1 +1,0 @@
-export default async function handler(req,res){try{const meses=Number(req.query.meses)||1;const r=await fetch(`${process.env.GAS_API_URL}?action=dashboard&meses=${meses}`);const data=await r.json();return res.status(r.ok?200:502).json(data)}catch(e){return res.status(500).json({success:false,message:'Error obteniendo el dashboard'})}}
