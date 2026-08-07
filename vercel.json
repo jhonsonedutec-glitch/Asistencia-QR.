@@ -1,8 +1,12 @@
 {
   "rewrites": [
     {
-      "source": "/api/:path*",
-      "destination": "https://script.google.com/macros/s/AKfycbyOwBCzFNZQNRKFsdG1vLnwnLS83biDMl8NjLo7uQ-FYnnbFWnRSSqEswvUTGpHy8ff/exec/:path*"
+      "source": "/api/attendance",
+      "destination": "https://script.google.com/macros/s/AKfycbyOwBCzFNZQNRKFsdG1vLnwnLS83biDMl8NjLo7uQ-FYnnbFWnRSSqEswvUTGpHy8ff/exec"
+    },
+    {
+      "source": "/api/dashboard",
+      "destination": "https://script.google.com/macros/s/AKfycbyOwBCzFNZQNRKFsdG1vLnwnLS83biDMl8NjLo7uQ-FYnnbFWnRSSqEswvUTGpHy8ff/exec?action=dashboard"
     }
   ]
 }
