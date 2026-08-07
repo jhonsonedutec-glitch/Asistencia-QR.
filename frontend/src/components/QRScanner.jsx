@@ -1,0 +1,3 @@
+import {useEffect,useRef} from 'react';
+import {Html5Qrcode} from 'html5-qrcode';
+export default function QRScanner({onScan}){const ref=useRef(null);useEffect(()=>{let active=true;const scanner=new Html5Qrcode('qr-reader');ref.current=scanner;scanner.start({facingMode:'environment'},{fps:10,qrbox:{width:250,height:250}},async text=>{if(!active)return;active=false;try{await scanner.stop()}catch{}onScan(text.trim())},()=>{}).catch(()=>onScan(null));return()=>{active=false;if(scanner.isScanning)scanner.stop().catch(()=>{})}},[onScan]);return <div><div id="qr-reader" className="overflow-hidden rounded-2xl bg-slate-950"/><p className="mt-3 text-center text-sm text-slate-500">Apunta la cámara al código QR del estudiante.</p></div>}

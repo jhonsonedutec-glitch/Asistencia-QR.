@@ -1,0 +1,2 @@
+import {useState} from 'react';import Header from './components/Header';import Footer from './components/Footer';import Scanner from './pages/Scanner';import Dashboard from './pages/Dashboard';
+export default function App(){const [view,setView]=useState('scanner');return <div className="flex min-h-screen flex-col"><Header view={view} setView={setView}/><div className="flex-1">{view==='scanner'?<Scanner/>:<Dashboard/>}</div><Footer/></div>}
