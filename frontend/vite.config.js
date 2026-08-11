@@ -8,7 +8,8 @@ export default defineConfig({
       '/api': {
         target: 'https://script.google.com/macros/s/AKfycbwjavOVOERURb221OlTeEYLwq56z1_MGpXvhDI5PJ1r9KeEE9VqfxXc6JobvqiJGz49/exec',
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api/, ''),
+        // Ya no necesitamos reescribir la ruta. Vercel y Vite ahora se comportan igual.
+        // rewrite: (path) => path.replace(/^\/api/, ''),
       },
     },
   },
