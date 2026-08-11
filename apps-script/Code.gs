@@ -360,3 +360,5 @@ function configurarSistema() {
     ui.ButtonSet.OK
   );
 }
+
+// Fin del script
