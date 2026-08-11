@@ -50,16 +50,14 @@ function doGet(e) {
 
 function doPost(e) {
   try {
-    // Primero, determinamos la acción y el DNI
-    const action = e.parameter.action;
-    let dni;
+    // Unificamos la lectura de datos desde el cuerpo de la petición POST
+    const data = JSON.parse(e.postData.contents || '{}');
+    const action = data.action;
+    const dni = String(data.dni || '').trim();
 
-    if (action === 'registrar') {
-      dni = String(e.parameter.dni || '').trim();
-    } else {
-      // Mantenemos la lógica anterior como fallback por si se usa de otra manera
-      const data = JSON.parse(e.postData.contents || '{}');
-      dni = String(data.dni || '').trim();
+    // Solo procedemos si la acción es 'registrar'
+    if (action !== 'registrar') {
+      return jsonResponse({ success: false, message: 'Acción no válida para POST.' });
     }
 
     // Ahora que tenemos el DNI, procedemos con la lógica común
