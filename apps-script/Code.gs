@@ -14,7 +14,7 @@ const HOJA_REGISTRO = 'Registro_Diario';
 const HOJA_JUSTIFICACIONES = 'Justificaciones';
 
 // ------------------------------------------------------------
-// MANEJADORES DE PETICIONES (GET Y POST)
+// MANEJADORES DE PETICIONES (GET Y POST) - EL "MOTOR"
 // ------------------------------------------------------------
 
 function doGet(e) {
@@ -50,9 +50,19 @@ function doGet(e) {
 
 function doPost(e) {
   try {
-    const data = JSON.parse(e.postData.contents || '{}');
-    const dni = String(data.dni || '').trim();
+    // Primero, determinamos la acción y el DNI
+    const action = e.parameter.action;
+    let dni;
 
+    if (action === 'registrar') {
+      dni = String(e.parameter.dni || '').trim();
+    } else {
+      // Mantenemos la lógica anterior como fallback por si se usa de otra manera
+      const data = JSON.parse(e.postData.contents || '{}');
+      dni = String(data.dni || '').trim();
+    }
+
+    // Ahora que tenemos el DNI, procedemos con la lógica común
     if (!/^\d{8}$/.test(dni)) {
       return jsonResponse({ success: false, message: 'El DNI debe contener 8 dígitos numéricos.' });
     }
@@ -71,12 +81,28 @@ function doPost(e) {
     const hoja = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(HOJA_REGISTRO);
     const datos = hoja.getDataRange().getValues();
 
-    // --- INICIO DE LA CORRECCIÓN (VERSIÓN ROBUSTA) ---
+    // --- INICIO DE LA CORRECCIÓN (VERSIÓN SÚPER-ROBUSTA) ---
     for (let i = 1; i < datos.length; i++) {
-      const fechaCelda = datos[i][0]; // Puede ser un objeto Date o un string
-      if (fechaCelda) { // Nos aseguramos de que la celda no esté vacía
-        // Forzamos la conversión de la fecha de la hoja a un string 'dd/MM/yyyy' para una comparación segura
-        const fechaRegistro = Utilities.formatDate(new Date(fechaCelda), tz, 'dd/MM/yyyy');
+      const fechaCelda = datos[i][0];
+      if (fechaCelda) {
+        let fechaRegistroObj;
+
+        if (fechaCelda instanceof Date) {
+          fechaRegistroObj = fechaCelda;
+        } else {
+          const partes = String(fechaCelda).split('/');
+          if (partes.length === 3) {
+            fechaRegistroObj = new Date(Number(partes[2]), Number(partes[1]) - 1, Number(partes[0]));
+          } else {
+            continue;
+          }
+        }
+        
+        if (isNaN(fechaRegistroObj.getTime())) {
+            continue;
+        }
+
+        const fechaRegistro = Utilities.formatDate(fechaRegistroObj, tz, 'dd/MM/yyyy');
         const dniRegistro = String(datos[i][2]).trim();
         
         if (fechaRegistro === fecha && dniRegistro === dni) {
@@ -127,10 +153,10 @@ function buscarEstudiante(dni) {
 function calcularEstado(fechaHora, nivel) {
   const minutosDelDia = fechaHora.getHours() * 60 + fechaHora.getMinutes();
   if (String(nivel).toLowerCase().includes('primaria')) {
-    return minutosDelDia <= 495 ? 'Asistió' : 'Tardanza'; // Tolerancia 8:15 AM
+    return minutosDelDia <= 495 ? 'Asistió' : 'Tardanza';
   }
   if (String(nivel).toLowerCase().includes('secundaria')) {
-    return minutosDelDia <= 855 ? 'Asistió' : 'Tardanza'; // Tolerancia 2:15 PM
+    return minutosDelDia <= 855 ? 'Asistió' : 'Tardanza';
   }
   return 'Tardanza';
 }
@@ -194,4 +220,143 @@ function convertirFecha(fechaStr) {
 function jsonResponse(data) {
   return ContentService.createTextOutput(JSON.stringify(data))
     .setMimeType(ContentService.MimeType.JSON);
+}
+
+
+// =================================================================================
+// SCRIPT DE CONFIGURACIÓN INICIAL DEL SISTEMA - LA "CAJA DE HERRAMIENTAS"
+// =================================================================================
+
+function configurarSistema() {
+
+  const ui = SpreadsheetApp.getUi();
+
+  const confirmacion = ui.alert(
+    'Confirmar Configuración',
+    'Este script configurará las hojas "BD_Estudiantes", "Registro_Diario" y "Justificaciones".\n\nADVERTENCIA: Se borrará cualquier contenido existente en estas hojas.\n\n¿Desea continuar?',
+    ui.ButtonSet.YES_NO
+  );
+
+  if (confirmacion !== ui.Button.YES) {
+    ui.alert('Configuración cancelada por el usuario.');
+    return;
+  }
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  if (ss.getName() !== 'Qr Asistencia') {
+    ui.alert(
+      'Advertencia de Nombre',
+      'El archivo actual se llama "' + ss.getName() + '".\n\n' +
+      'Se recomienda renombrarlo a:\n' +
+      '"Qr Asistencia" para mantener la consistencia.',
+      ui.ButtonSet.OK
+    );
+  }
+
+  let estudiantes = ss.getSheetByName('BD_Estudiantes');
+  if (!estudiantes) {
+    estudiantes = ss.insertSheet('BD_Estudiantes');
+  }
+  estudiantes.clear();
+  estudiantes.getRange('A1:D1').setValues([['DNI', 'Nombre', 'Grado', 'Nivel']]);
+
+  let registro = ss.getSheetByName('Registro_Diario');
+  if (!registro) {
+    registro = ss.insertSheet('Registro_Diario');
+  }
+  registro.clear();
+  registro.getRange('A1:E1').setValues([['Fecha', 'Hora', 'DNI', 'Nombre', 'Estado']]);
+
+  let justificaciones = ss.getSheetByName('Justificaciones');
+  if (!justificaciones) {
+    justificaciones = ss.insertSheet('Justificaciones');
+  }
+  justificaciones.clear();
+  justificaciones.getRange('A1:C1').setValues([['Fecha', 'DNI', 'Motivo']]);
+
+  const estudiantesPrueba = [
+    ['12345678', 'Juan Pérez López', '3ro', 'Primaria'],
+    ['23456789', 'María López García', '4to', 'Primaria'],
+    ['34567890', 'Pedro Sánchez Díaz', '1ro', 'Secundaria'],
+    ['45678901', 'Ana Torres Ruiz', '5to', 'Secundaria']
+  ];
+
+  estudiantes.getRange(2, 1, estudiantesPrueba.length, 4).setValues(estudiantesPrueba);
+
+  const rangosEncabezados = [
+    estudiantes.getRange('A1:D1'),
+    registro.getRange('A1:E1'),
+    justificaciones.getRange('A1:C1')
+  ];
+
+  rangosEncabezados.forEach(rango => {
+    rango
+      .setFontWeight('bold')
+      .setHorizontalAlignment('center')
+      .setVerticalAlignment('middle')
+      .setBackground('#EEEEEE');
+  });
+
+  estudiantes.setColumnWidth(1, 120);
+  estudiantes.setColumnWidth(2, 250);
+  estudiantes.setColumnWidth(3, 120);
+  estudiantes.setColumnWidth(4, 130);
+
+  registro.setColumnWidth(1, 120);
+  registro.setColumnWidth(2, 100);
+  registro.setColumnWidth(3, 120);
+  registro.setColumnWidth(4, 250);
+  registro.setColumnWidth(5, 130);
+
+  justificaciones.setColumnWidth(1, 120);
+  justificaciones.setColumnWidth(2, 120);
+  justificaciones.setColumnWidth(3, 400);
+
+  registro.getRange('A2:A').setNumberFormat('dd/MM/yyyy');
+  registro.getRange('B2:B').setNumberFormat('HH:mm:ss');
+  justificaciones.getRange('A2:A').setNumberFormat('dd/MM/yyyy');
+
+  estudiantes.setFrozenRows(1);
+  registro.setFrozenRows(1);
+  justificaciones.setFrozenRows(1);
+
+  [estudiantes, registro, justificaciones].forEach(hoja => {
+    if (hoja.getFilter()) {
+      hoja.getFilter().remove();
+    }
+    hoja.getRange(1, 1, hoja.getMaxRows(), hoja.getMaxColumns()).createFilter();
+  });
+
+  const reglaNivel = SpreadsheetApp.newDataValidation()
+    .requireValueInList(['Primaria', 'Secundaria'], true)
+    .setAllowInvalid(false)
+    .setHelpText('Seleccione un nivel válido: Primaria o Secundaria.')
+    .build();
+
+  estudiantes.getRange('D2:D').setDataValidation(reglaNivel);
+
+  const reglaEstado = SpreadsheetApp.newDataValidation()
+    .requireValueInList(['Asistió', 'Tardanza'], true)
+    .setAllowInvalid(false)
+    .setHelpText('Seleccione un estado válido: Asistió o Tardanza.')
+    .build();
+
+  registro.getRange('E2:E').setDataValidation(reglaEstado);
+
+  ss.setSpreadsheetTimeZone('America/Lima');
+
+  ss.setActiveSheet(estudiantes);
+  ss.moveActiveSheet(1);
+  ss.setActiveSheet(registro);
+  ss.moveActiveSheet(2);
+  ss.setActiveSheet(justificaciones);
+  ss.moveActiveSheet(3);
+  ss.setActiveSheet(estudiantes);
+
+  ui.alert(
+    '✓ Configuración Completada',
+    'El archivo "Qr Asistencia" ha sido configurado correctamente para IEP MILLENIUM.',
+    ui.ButtonSet.OK
+  );
 }
