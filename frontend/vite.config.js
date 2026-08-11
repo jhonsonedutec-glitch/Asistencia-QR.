@@ -6,10 +6,10 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': {
-        target: 'https://script.google.com/macros/s/AKfycbwjavOVOERURb221OlTeEYLwq56z1_MGpXvhDI5PJ1r9KeEE9VqfxXc6JobvqiJGz49/exec',
+        target: 'https://script.google.com/macros/s/AKfycbzsoZBB9YQKioI40E-5h1524pEnnqmfEylFcZ62UGAUx4Z0Nrxcv015JKUM7Fc_rlP0/exec',
         changeOrigin: true,
         // Ya no necesitamos reescribir la ruta. Vercel y Vite ahora se comportan igual.
-        // rewrite: (path) => path.replace(/^\/api/, ''),
+        rewrite: (path) => path.replace(/^\/api/, ''),
       },
     },
   },
