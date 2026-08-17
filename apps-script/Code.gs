@@ -13,6 +13,10 @@ const HOJA_ESTUDIANTES = 'BD_Estudiantes';
 const HOJA_REGISTRO = 'Registro_Diario';
 const HOJA_JUSTIFICACIONES = 'Justificaciones';
 
+// --- API DE WHATSAPP (META CLOUD API) ---
+const META_API_TOKEN = 'PEGA_AQUI_TU_TOKEN_DE_ACCESO_TEMPORAL'; 
+const META_PHONE_ID = '1234134843119386'; // Tu Phone Number ID
+
 // ------------------------------------------------------------
 // MANEJADORES DE PETICIONES (GET Y POST) - EL "MOTOR"
 // ------------------------------------------------------------
@@ -116,11 +120,72 @@ function doPost(e) {
     // 2. Marcar en la "lista de control" que este DNI ya se registró hoy.
     SCRIPT_PROPERTIES.setProperty(propertyKey, 'registrado');
 
+    // --- 3. ENVIAR MENSAJE DE WHATSAPP (META API) ---
+    let whatsappEnviado = false;
+    if (estudiante.celular && META_API_TOKEN !== 'PEGA_AQUI_TU_TOKEN_DE_ACCESO_TEMPORAL') {
+      try {
+        const url = `https://graph.facebook.com/v25.0/${META_PHONE_ID}/messages`;
+        
+        // Limpiamos el número para asegurar que solo tenga dígitos (Meta no acepta el signo '+')
+        const numeroDestino = estudiante.celular.replace(/\D/g, '');
+        
+        // Payload usando la API oficial
+        // IMPORTANTE: Fuera de la ventana de 24 horas, Meta exige usar una "Plantilla" (Template).
+        const payload = {
+          "messaging_product": "whatsapp",
+          "to": numeroDestino,
+          "type": "template",
+          "template": { 
+            // TODO: Debes crear una plantilla en tu cuenta de Meta llamada 'notificacion_asistencia'
+            // Por ahora dejo la de prueba de jaspers_market para que no te dé error si la pruebas.
+            "name": "jaspers_market_order_confirmation_v1", 
+            "language": { "code": "en_US" }, 
+            "components": [
+              { 
+                "type": "body", 
+                "parameters": [
+                  { "type": "text", "text": estudiante.nombre }, 
+                  { "type": "text", "text": estado }, 
+                  { "type": "text", "text": fecha }
+                ] 
+              }
+            ] 
+          }
+        };
+
+        const opciones = {
+          "method": "post",
+          "headers": {
+            "Authorization": "Bearer " + META_API_TOKEN,
+            "Content-Type": "application/json"
+          },
+          "payload": JSON.stringify(payload),
+          "muteHttpExceptions": true
+        };
+        
+        const res = UrlFetchApp.fetch(url, opciones);
+        if (res.getResponseCode() === 200 || res.getResponseCode() === 201) {
+          whatsappEnviado = true;
+        } else {
+          const errorMsg = res.getContentText();
+          console.error('Meta API Error: ' + errorMsg);
+          // Escribir el error en la hoja de Registro para que el usuario pueda verlo de inmediato
+          hoja.getRange(hoja.getLastRow(), 6).setValue('Error Meta: ' + errorMsg);
+        }
+      } catch (error) {
+        console.error('Error al enviar WhatsApp (Meta): ', error);
+        hoja.getRange(hoja.getLastRow(), 6).setValue('Error script: ' + error.message);
+      }
+    } else if (!estudiante.celular) {
+      hoja.getRange(hoja.getLastRow(), 6).setValue('Sin número de celular');
+    }
+
     return jsonResponse({
       success: true,
       message: estado === 'Asistió' ? 'Asistencia registrada correctamente' : 'Se registró una TARDANZA',
       estudiante,
-      asistencia: { fecha, hora, estado }
+      asistencia: { fecha, hora, estado },
+      whatsapp: whatsappEnviado
     });
 
   } catch (error) {
@@ -134,13 +199,25 @@ function doPost(e) {
 
 function buscarEstudiante(dni) {
   const datos = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(HOJA_ESTUDIANTES).getDataRange().getValues();
+  if (datos.length < 2) return null;
+  
+  const headers = datos[0].map(h => String(h).trim().toLowerCase());
+  const cDNI = headers.indexOf('dni');
+  const cNombre = headers.indexOf('nombre');
+  const cGrado = headers.indexOf('grado');
+  const cNivel = headers.indexOf('nivel');
+  const cCelular = headers.indexOf('celular');
+  
+  if (cDNI === -1) return null;
+
   for (let i = 1; i < datos.length; i++) {
-    if (String(datos[i][0]).trim() === dni) {
+    if (String(datos[i][cDNI]).trim() === dni) {
       return {
         dni: dni,
-        nombre: datos[i][1],
-        grado: datos[i][2],
-        nivel: datos[i][3]
+        nombre: cNombre !== -1 ? datos[i][cNombre] : '',
+        grado: cGrado !== -1 ? datos[i][cGrado] : '',
+        nivel: cNivel !== -1 ? datos[i][cNivel] : '',
+        celular: cCelular !== -1 ? String(datos[i][cCelular] || '').trim() : ''
       };
     }
   }
@@ -180,12 +257,20 @@ function obtenerDashboard(meses) {
   // 1. Obtener todos los estudiantes activos
   const datosEstudiantes = ss.getSheetByName(HOJA_ESTUDIANTES).getDataRange().getValues();
   const estudiantesTotales = [];
-  for (let i = 1; i < datosEstudiantes.length; i++) {
-    if (datosEstudiantes[i][0]) {
-      estudiantesTotales.push({
-        dni: String(datosEstudiantes[i][0]).trim(),
-        nombre: datosEstudiantes[i][1]
-      });
+  if (datosEstudiantes.length > 1) {
+    const headers = datosEstudiantes[0].map(h => String(h).trim().toLowerCase());
+    const cDNI = headers.indexOf('dni');
+    const cNombre = headers.indexOf('nombre');
+    
+    if (cDNI !== -1) {
+      for (let i = 1; i < datosEstudiantes.length; i++) {
+        if (datosEstudiantes[i][cDNI]) {
+          estudiantesTotales.push({
+            dni: String(datosEstudiantes[i][cDNI]).trim(),
+            nombre: cNombre !== -1 ? datosEstudiantes[i][cNombre] : ''
+          });
+        }
+      }
     }
   }
 
@@ -298,9 +383,26 @@ function obtenerDashboard(meses) {
 
 function obtenerEstudiantes() {
     const datos = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(HOJA_ESTUDIANTES).getDataRange().getValues();
+    if (datos.length < 2) return { success: true, estudiantes: [] };
+    
+    const headers = datos[0].map(h => String(h).trim().toLowerCase());
+    const cDNI = headers.indexOf('dni');
+    const cNombre = headers.indexOf('nombre');
+    const cGrado = headers.indexOf('grado');
+    const cNivel = headers.indexOf('nivel');
+    
+    if (cDNI === -1) return { success: true, estudiantes: [] };
+
+    const estudiantes = datos.slice(1).map(r => ({ 
+      dni: String(r[cDNI]), 
+      nombre: cNombre !== -1 ? r[cNombre] : '', 
+      grado: cGrado !== -1 ? r[cGrado] : '', 
+      nivel: cNivel !== -1 ? r[cNivel] : '' 
+    })).filter(e => e.dni);
+
     return {
         success: true,
-        estudiantes: datos.slice(1).map(r => ({ dni: String(r[0]), nombre: r[1], grado: r[2], nivel: r[3] }))
+        estudiantes: estudiantes
     };
 }
 
@@ -319,6 +421,11 @@ function convertirFecha(fechaStr) {
 function jsonResponse(data) {
   return ContentService.createTextOutput(JSON.stringify(data))
     .setMimeType(ContentService.MimeType.JSON);
+}
+
+// Función exclusiva para forzar a Google a pedir el permiso de conexión externa
+function pedirPermisos() {
+  UrlFetchApp.fetch("https://google.com");
 }
 
 
@@ -358,7 +465,7 @@ function configurarSistema() {
     estudiantes = ss.insertSheet('BD_Estudiantes');
   }
   estudiantes.clear();
-  estudiantes.getRange('A1:D1').setValues([['DNI', 'Nombre', 'Grado', 'Nivel']]);
+  estudiantes.getRange('A1:E1').setValues([['DNI', 'Nombre', 'Grado', 'Nivel', 'Celular']]);
 
   let registro = ss.getSheetByName('Registro_Diario');
   if (!registro) {
@@ -375,16 +482,16 @@ function configurarSistema() {
   justificaciones.getRange('A1:C1').setValues([['Fecha', 'DNI', 'Motivo']]);
 
   const estudiantesPrueba = [
-    ['12345678', 'Juan Pérez López', '3ro', 'Primaria'],
-    ['23456789', 'María López García', '4to', 'Primaria'],
-    ['34567890', 'Pedro Sánchez Díaz', '1ro', 'Secundaria'],
-    ['45678901', 'Ana Torres Ruiz', '5to', 'Secundaria']
+    ['12345678', 'Juan Pérez López', '3ro', 'Primaria', '+51999999999'],
+    ['23456789', 'María López García', '4to', 'Primaria', '+51999999998'],
+    ['34567890', 'Pedro Sánchez Díaz', '1ro', 'Secundaria', '+51999999997'],
+    ['45678901', 'Ana Torres Ruiz', '5to', 'Secundaria', '+51999999996']
   ];
 
-  estudiantes.getRange(2, 1, estudiantesPrueba.length, 4).setValues(estudiantesPrueba);
+  estudiantes.getRange(2, 1, estudiantesPrueba.length, 5).setValues(estudiantesPrueba);
 
   const rangosEncabezados = [
-    estudiantes.getRange('A1:D1'),
+    estudiantes.getRange('A1:E1'),
     registro.getRange('A1:E1'),
     justificaciones.getRange('A1:C1')
   ];
@@ -401,6 +508,7 @@ function configurarSistema() {
   estudiantes.setColumnWidth(2, 250);
   estudiantes.setColumnWidth(3, 120);
   estudiantes.setColumnWidth(4, 130);
+  estudiantes.setColumnWidth(5, 130);
 
   registro.setColumnWidth(1, 120);
   registro.setColumnWidth(2, 100);
