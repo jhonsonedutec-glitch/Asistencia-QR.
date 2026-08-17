@@ -136,10 +136,8 @@ function doPost(e) {
           "to": numeroDestino,
           "type": "template",
           "template": { 
-            // TODO: Debes crear una plantilla en tu cuenta de Meta llamada 'notificacion_asistencia'
-            // Por ahora dejo la de prueba de jaspers_market para que no te dé error si la pruebas.
-            "name": "jaspers_market_order_confirmation_v1", 
-            "language": { "code": "en_US" }, 
+            "name": "asistencia", 
+            "language": { "code": "es" }, 
             "components": [
               { 
                 "type": "body", 
