@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 10px;
+        -webkit-user-select: none; /* Safari */
+        -ms-user-select: none; /* IE 10+ */
+        user-select: none; /* Standard syntax */
+      }
+      .calendar-container {
+        text-align: center;
+      }
+      .calendar-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 10px;
+      }
+      .calendar-header button {
+        border: 1px solid #ccc;
+        background-color: #f0f0f0;
+        cursor: pointer;
+        padding: 5px 10px;
+        border-radius: 4px;
+      }
+      .calendar-grid {
+        display: grid;
+        grid-template-columns: repeat(7, 1fr);
+        gap: 2px;
+      }
+      .calendar-day, .weekday {
+        padding: 5px;
+        text-align: center;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+      }
+      .weekday {
+        font-weight: bold;
+        background-color: #f7f7f7;
+      }
+      .calendar-day {
+        cursor: pointer;
+      }
+      .calendar-day.other-month {
+        color: #aaa;
+        background-color: #f9f9f9;
+      }
+      .calendar-day.weekend {
+        background-color: #fdeeee;
+      }
+      .calendar-day.non-working {
+        background-color: #ff6b6b;
+        color: white;
+        font-weight: bold;
+      }
+      .calendar-day.today {
+        border-color: #007bff;
+        box-shadow: 0 0 0 2px #007bff40;
+      }
+      .loader {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(255,255,255,0.7);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 9999;
+        display: none; /* Oculto por defecto */
+      }
+    </style>
+  </head>
+  <body>
+    <div class="calendar-container">
+      <div class="calendar-header">
+        <button id="prev-month">&lt;</button>
+        <h3 id="month-year"></h3>
+        <button id="next-month">&gt;</button>
+      </div>
+      <div class="calendar-grid" id="weekdays">
+        <div class="weekday">D</div>
+        <div class="weekday">L</div>
+        <div class="weekday">M</div>
+        <div class="weekday">M</div>
+        <div class="weekday">J</div>
+        <div class="weekday">V</div>
+        <div class="weekday">S</div>
+      </div>
+      <div class="calendar-grid" id="calendar-days"></div>
+    </div>
+    <div id="loader" class="loader">
+      <span>Cargando...</span>
+    </div>
+
+    <script>
+      let currentDate = new Date();
+      let nonWorkingDays = new Set();
+      const loader = document.getElementById('loader');
+
+      function showLoader() { loader.style.display = 'flex'; }
+      function hideLoader() { loader.style.display = 'none'; }
+
+      function renderCalendar() {
+        showLoader();
+        const year = currentDate.getFullYear();
+        const month = currentDate.getMonth();
+
+        document.getElementById('month-year').textContent = 
+          `${currentDate.toLocaleString('es-ES', { month: 'long' })} ${year}`;
+
+        const calendarDays = document.getElementById('calendar-days');
+        calendarDays.innerHTML = '';
+
+        const firstDayOfMonth = new Date(year, month, 1);
+        const lastDayOfMonth = new Date(year, month + 1, 0);
+        const daysInMonth = lastDayOfMonth.getDate();
+        const startDayOfWeek = firstDayOfMonth.getDay();
+
+        // Cargar los días no laborables para el mes actual
+        google.script.run
+          .withSuccessHandler(days => {
+            nonWorkingDays = new Set(days);
+            
+            // Rellenar días del mes anterior
+            for (let i = 0; i < startDayOfWeek; i++) {
+              const dayElement = document.createElement('div');
+              dayElement.classList.add('calendar-day', 'other-month');
+              calendarDays.appendChild(dayElement);
+            }
+
+            // Rellenar días del mes actual
+            for (let i = 1; i <= daysInMonth; i++) {
+              const dayElement = document.createElement('div');
+              const dayDate = new Date(year, month, i);
+              const dateString = `${year}-${String(month + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
+              
+              dayElement.classList.add('calendar-day');
+              dayElement.textContent = i;
+              dayElement.dataset.date = dateString;
+
+              const today = new Date();
+              if (year === today.getFullYear() && month === today.getMonth() && i === today.getDate()) {
+                dayElement.classList.add('today');
+              }
+
+              const dayOfWeek = dayDate.getDay();
+              if (dayOfWeek === 0 || dayOfWeek === 6) {
+                dayElement.classList.add('weekend');
+              }
+
+              if (nonWorkingDays.has(dateString)) {
+                dayElement.classList.add('non-working');
+              }
+
+              dayElement.addEventListener('click', toggleDay);
+              calendarDays.appendChild(dayElement);
+            }
+            hideLoader();
+          })
+          .withFailureHandler(err => {
+            console.error(err);
+            hideLoader();
+          })
+          .getNonWorkingDays(year, month + 1);
+      }
+
+      function toggleDay(event) {
+        showLoader();
+        const date = event.target.dataset.date;
+        const isCurrentlyNonWorking = nonWorkingDays.has(date);
+        
+        google.script.run
+          .withSuccessHandler(() => {
+            if (isCurrentlyNonWorking) {
+              nonWorkingDays.delete(date);
+              event.target.classList.remove('non-working');
+            } else {
+              nonWorkingDays.add(date);
+              event.target.classList.add('non-working');
+            }
+            hideLoader();
+          })
+          .withFailureHandler(err => {
+            console.error(err);
+            alert('Hubo un error al actualizar la fecha.');
+            hideLoader();
+          })
+          .updateNonWorkingDay(date, !isCurrentlyNonWorking);
+      }
+
+      document.getElementById('prev-month').addEventListener('click', () => {
+        currentDate.setMonth(currentDate.getMonth() - 1);
+        renderCalendar();
+      });
+
+      document.getElementById('next-month').addEventListener('click', () => {
+        currentDate.setMonth(currentDate.getMonth() + 1);
+        renderCalendar();
+      });
+
+      // Carga inicial
+      document.addEventListener('DOMContentLoaded', renderCalendar);
+    </script>
+  </body>
+</html>

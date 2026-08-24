@@ -12,6 +12,7 @@ const SPREADSHEET_ID = '1S78EzSmPc7jlyd0_hKzaUSPGaCL45_ZOaivyNft_t-A';
 const HOJA_ESTUDIANTES = 'BD_Estudiantes';
 const HOJA_REGISTRO = 'Registro_Diario';
 const HOJA_JUSTIFICACIONES = 'Justificaciones';
+const HOJA_CALENDARIO = 'CALENDARIO_ANUAL';
 
 // --- API DE WHATSAPP (META CLOUD API) ---
 const META_API_TOKEN = 'PEGA_AQUI_TU_TOKEN_DE_ACCESO_TEMPORAL'; 
@@ -195,31 +196,54 @@ function doPost(e) {
 // FUNCIONES DE LÓGICA DE NEGOCIO
 // ------------------------------------------------------------
 
-function buscarEstudiante(dni) {
-  const datos = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(HOJA_ESTUDIANTES).getDataRange().getValues();
-  if (datos.length < 2) return null;
-  
-  const headers = datos[0].map(h => String(h).trim().toLowerCase());
-  const cDNI = headers.indexOf('dni');
-  const cNombre = headers.indexOf('nombre');
-  const cGrado = headers.indexOf('grado');
-  const cNivel = headers.indexOf('nivel');
-  const cCelular = headers.indexOf('celular');
-  
-  if (cDNI === -1) return null;
+const CACHE_KEY_ESTUDIANTES = 'estudiantes_cache';
 
-  for (let i = 1; i < datos.length; i++) {
-    if (String(datos[i][cDNI]).trim() === dni) {
-      return {
-        dni: dni,
-        nombre: cNombre !== -1 ? datos[i][cNombre] : '',
-        grado: cGrado !== -1 ? datos[i][cGrado] : '',
-        nivel: cNivel !== -1 ? datos[i][cNivel] : '',
-        celular: cCelular !== -1 ? String(datos[i][cCelular] || '').trim() : ''
-      };
+function actualizarCacheEstudiantes() {
+  const hojaEstudiantes = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(HOJA_ESTUDIANTES);
+  const datos = hojaEstudiantes.getDataRange().getValues();
+  const estudiantesObj = {};
+
+  if (datos.length > 1) {
+    const headers = datos[0].map(h => String(h).trim().toLowerCase());
+    const cDNI = headers.indexOf('dni');
+    const cNombre = headers.indexOf('nombre');
+    const cGrado = headers.indexOf('grado');
+    const cNivel = headers.indexOf('nivel');
+    const cCelular = headers.indexOf('celular');
+
+    if (cDNI !== -1) {
+      for (let i = 1; i < datos.length; i++) {
+        const fila = datos[i];
+        const dni = String(fila[cDNI]).trim();
+        if (dni) {
+          estudiantesObj[dni] = {
+            dni: dni,
+            nombre: cNombre !== -1 ? fila[cNombre] : '',
+            grado: cGrado !== -1 ? fila[cGrado] : '',
+            nivel: cNivel !== -1 ? fila[cNivel] : '',
+            celular: cCelular !== -1 ? String(fila[cCelular] || '').trim() : ''
+          };
+        }
+      }
     }
   }
-  return null;
+
+  PropertiesService.getScriptProperties().setProperty(CACHE_KEY_ESTUDIANTES, JSON.stringify(estudiantesObj));
+  return estudiantesObj;
+}
+
+function getEstudiantesFromCache() {
+  const cache = PropertiesService.getScriptProperties().getProperty(CACHE_KEY_ESTUDIANTES);
+  if (cache) {
+    return JSON.parse(cache);
+  }
+  // Si el caché no existe, lo creamos y lo devolvemos
+  return actualizarCacheEstudiantes();
+}
+
+function buscarEstudiante(dni) {
+  const estudiantes = getEstudiantesFromCache();
+  return estudiantes[dni] || null;
 }
 
 function calcularEstado(fechaHora, nivel) {
@@ -566,4 +590,125 @@ function configurarSistema() {
   );
 }
 
-// Fin del script
+function registrarInasistencias() {
+  const SCRIPT_PROPERTIES = PropertiesService.getScriptProperties();
+  const hoy = new Date();
+  const tz = Session.getScriptTimeZone() || 'America/Lima';
+  const fechaHoyStr = Utilities.formatDate(hoy, tz, 'dd/MM/yyyy');
+
+  // 1. VERIFICAR SI HOY ES UN DÍA LABORABLE
+  const hojaCalendario = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(HOJA_CALENDARIO);
+  if (hojaCalendario) {
+    const calendarioDatos = hojaCalendario.getDataRange().getValues();
+    for (let i = 1; i < calendarioDatos.length; i++) {
+      const fechaCelda = new Date(calendarioDatos[i][0]);
+      const fechaCeldaStr = Utilities.formatDate(fechaCelda, tz, 'dd/MM/yyyy');
+      if (fechaCeldaStr === fechaHoyStr) {
+        const esLaborable = String(calendarioDatos[i][1]).toUpperCase();
+        if (esLaborable === 'NO') {
+          console.log(`Hoy (${fechaHoyStr}) es un día no laborable. No se registrarán faltas.`);
+          return; // Detiene la ejecución
+        }
+        break; // Fecha encontrada, no es necesario seguir buscando
+      }
+    }
+  }
+
+  // 2. OBTENER LISTA COMPLETA DE ALUMNOS Y ASISTENCIAS DE HOY
+  const todosLosAlumnos = getEstudiantesFromCache();
+  const dnisAlumnos = Object.keys(todosLosAlumnos);
+  
+  const fechaKey = Utilities.formatDate(hoy, tz, 'yyyy-MM-dd');
+  const dnisAsistieron = [];
+  dnisAlumnos.forEach(dni => {
+    const propertyKey = `asistencia_${dni}_${fechaKey}`;
+    if (SCRIPT_PROPERTIES.getProperty(propertyKey)) {
+      dnisAsistieron.push(dni);
+    }
+  });
+
+  // 3. DETERMINAR QUIÉNES FALTARON
+  const dnisFaltaron = dnisAlumnos.filter(dni => !dnisAsistieron.includes(dni));
+
+  // 4. REGISTRAR LAS FALTAS EN LA HOJA DE REGISTRO
+  if (dnisFaltaron.length > 0) {
+    const hojaRegistro = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(HOJA_REGISTRO);
+    const nuevasFilas = [];
+    const horaFalta = 'N/A'; // O la hora que definas para el cierre
+    const estadoFalta = 'Falta';
+
+    dnisFaltaron.forEach(dni => {
+      const alumno = todosLosAlumnos[dni];
+      if (alumno) {
+        nuevasFilas.push([fechaHoyStr, horaFalta, dni, alumno.nombre, estadoFalta]);
+      }
+    });
+
+    if (nuevasFilas.length > 0) {
+      hojaRegistro.getRange(hojaRegistro.getLastRow() + 1, 1, nuevasFilas.length, nuevasFilas[0].length).setValues(nuevasFilas);
+      SpreadsheetApp.flush();
+    }
+  }
+  
+  console.log(`Proceso de inasistencias completado. Se registraron ${dnisFaltaron.length} faltas.`);
+}
+
+function onOpen() {
+  SpreadsheetApp.getUi()
+    .createMenu('Asistencia QR')
+    .addItem('Abrir Calendario de Feriados', 'abrirSidebarCalendario')
+    .addSeparator()
+    .addItem('Actualizar Caché de Alumnos', 'actualizarCacheAlumnos')
+    .addToUi();
+}
+
+function abrirSidebarCalendario() {
+  const html = HtmlService.createHtmlOutputFromFile('SidebarCalendario')
+      .setTitle('Calendario Anual');
+  SpreadsheetApp.getUi().showSidebar(html);
+}
+
+function getNonWorkingDays(year, month) {
+  const hojaCalendario = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(HOJA_CALENDARIO);
+  if (!hojaCalendario) return [];
+
+  const datos = hojaCalendario.getDataRange().getValues();
+  const nonWorkingDays = [];
+  const tz = Session.getScriptTimeZone() || 'America/Lima';
+
+  for (let i = 1; i < datos.length; i++) {
+    const fecha = new Date(datos[i][0]);
+    if (fecha.getFullYear() === year && (fecha.getMonth() + 1) === month) {
+      if (String(datos[i][1]).toUpperCase() === 'NO') {
+        nonWorkingDays.push(Utilities.formatDate(fecha, tz, 'yyyy-MM-dd'));
+      }
+    }
+  }
+  return nonWorkingDays;
+}
+
+function updateNonWorkingDay(dateString, isNonWorking) {
+  const hojaCalendario = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(HOJA_CALENDARIO);
+  if (!hojaCalendario) {
+    throw new Error('La hoja CALENDARIO_ANUAL no existe.');
+  }
+  const datos = hojaCalendario.getDataRange().getValues();
+  const fechaBuscada = new Date(dateString);
+  const tz = Session.getScriptTimeZone() || 'America/Lima';
+  
+  // Ajustar la fechaBuscada a la zona horaria del script para evitar errores de un día
+  fechaBuscada.setMinutes(fechaBuscada.getMinutes() + fechaBuscada.getTimezoneOffset());
+
+  for (let i = 1; i < datos.length; i++) {
+    const fechaCelda = new Date(datos[i][0]);
+    if (fechaCelda.getFullYear() === fechaBuscada.getFullYear() &&
+        fechaCelda.getMonth() === fechaBuscada.getMonth() &&
+        fechaCelda.getDate() === fechaBuscada.getDate()) {
+      
+      hojaCalendario.getRange(i + 1, 2).setValue(isNonWorking ? 'NO' : '');
+      SpreadsheetApp.flush();
+      return { success: true, message: 'Fecha actualizada' };
+    }
+  }
+  throw new Error('La fecha no fue encontrada en el calendario.');
+}
