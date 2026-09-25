@@ -1,4 +1,4 @@
-const GAS_URL = 'https://script.google.com/macros/s/AKfycbzsoZBB9YQKioI40E-5h1524pEnnqmfEylFcZ62UGAUx4Z0Nrxcv015JKUM7Fc_rlP0/exec';
+const GAS_URL = 'https://script.google.com/macros/s/AKfycbz0_C6D2ywwcNJ7gWElJ1t7uNurrc4KUG99_LSObFYC4HJXW8xQymChDbWF4CDsms2c/exec';
 
 const request = async (url, options={}) => {
   // Configurar redirect manual no es necesario con fetch y text/plain, el navegador lo sigue.
