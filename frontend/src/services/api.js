@@ -23,3 +23,5 @@ export const justificarFalta = (dni, fecha, motivo) => request(GAS_URL, {
   headers: { 'Content-Type': 'text/plain' },
   body: JSON.stringify({ action: 'justificar', dni, fecha, motivo })
 });
+
+export const obtenerEstudiantes = () => request(`${GAS_URL}?action=estudiantes`);
