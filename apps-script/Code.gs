@@ -190,7 +190,9 @@ const CACHE_KEY_ESTUDIANTES = 'estudiantes_cache';
 
 function actualizarCacheEstudiantes() {
   const hojaEstudiantes = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(HOJA_ESTUDIANTES);
-  const datos = hojaEstudiantes.getDataRange().getValues();
+  const ultFila = hojaEstudiantes.getLastRow();
+  const ultCol = hojaEstudiantes.getLastColumn();
+  const datos = ultFila > 0 && ultCol > 0 ? hojaEstudiantes.getRange(1, 1, ultFila, ultCol).getValues() : [];
   const estudiantesObj = {};
 
   if (datos.length > 1) {
@@ -218,22 +220,11 @@ function actualizarCacheEstudiantes() {
     }
   }
 
-  // CORRECCIÓN 1: Usamos CacheService en vez de PropertiesService para soportar miles de alumnos sin límite de 9KB.
-  const cache = CacheService.getScriptCache();
-  cache.put(CACHE_KEY_ESTUDIANTES, JSON.stringify(estudiantesObj), 21600); // Guardado por 6 horas
   return estudiantesObj;
 }
 
-function getEstudiantesFromCache() {
-  const cache = CacheService.getScriptCache().get(CACHE_KEY_ESTUDIANTES);
-  if (cache) {
-    return JSON.parse(cache);
-  }
-  return actualizarCacheEstudiantes();
-}
-
 function buscarEstudiante(dni) {
-  const estudiantes = getEstudiantesFromCache();
+  const estudiantes = actualizarCacheEstudiantes();
   return estudiantes[dni] || null;
 }
 
@@ -258,7 +249,10 @@ function obtenerDashboard(meses) {
   meses = Number(meses) || 1;
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   
-  const datosEstudiantes = ss.getSheetByName(HOJA_ESTUDIANTES).getDataRange().getValues();
+  const hojaE = ss.getSheetByName(HOJA_ESTUDIANTES);
+  const ultFilaE = hojaE.getLastRow();
+  const ultColE = hojaE.getLastColumn();
+  const datosEstudiantes = ultFilaE > 0 && ultColE > 0 ? hojaE.getRange(1, 1, ultFilaE, ultColE).getValues() : [];
   const estudiantesTotales = [];
   if (datosEstudiantes.length > 1) {
     const headers = datosEstudiantes[0].map(h => String(h).trim().toLowerCase());
@@ -277,7 +271,10 @@ function obtenerDashboard(meses) {
     }
   }
 
-  const datos = ss.getSheetByName(HOJA_REGISTRO).getDataRange().getValues();
+  const hojaR = ss.getSheetByName(HOJA_REGISTRO);
+  const ultFilaR = hojaR.getLastRow();
+  const ultColR = hojaR.getLastColumn();
+  const datos = ultFilaR > 0 && ultColR > 0 ? hojaR.getRange(1, 1, ultFilaR, ultColR).getValues() : [];
   const fechaInicio = new Date();
   fechaInicio.setMonth(fechaInicio.getMonth() - meses);
   fechaInicio.setHours(0, 0, 0, 0);
@@ -286,7 +283,10 @@ function obtenerDashboard(meses) {
   const registros = [];
   const registrosPorFecha = {};
 
-  const datosJustificaciones = ss.getSheetByName(HOJA_JUSTIFICACIONES).getDataRange().getValues();
+  const hojaJ = ss.getSheetByName(HOJA_JUSTIFICACIONES);
+  const ultFilaJ = hojaJ.getLastRow();
+  const ultColJ = hojaJ.getLastColumn();
+  const datosJustificaciones = ultFilaJ > 0 && ultColJ > 0 ? hojaJ.getRange(1, 1, ultFilaJ, ultColJ).getValues() : [];
   const mapJustificaciones = {};
   for (let i = 1; i < datosJustificaciones.length; i++) {
     if (!datosJustificaciones[i][0]) continue;
@@ -379,7 +379,7 @@ function obtenerDashboard(meses) {
 }
 
 function obtenerEstudiantes() {
-    const estudiantesObj = getEstudiantesFromCache();
+    const estudiantesObj = actualizarCacheEstudiantes();
     const estudiantes = Object.values(estudiantesObj);
     return {
         success: true,
@@ -423,7 +423,9 @@ function getNonWorkingDays(year, month) {
   const hojaCalendario = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(HOJA_CALENDARIO);
   if (!hojaCalendario) return [];
 
-  const datos = hojaCalendario.getDataRange().getValues();
+  const ultFilaC = hojaCalendario.getLastRow();
+  const ultColC = hojaCalendario.getLastColumn();
+  const datos = ultFilaC > 0 && ultColC > 0 ? hojaCalendario.getRange(1, 1, ultFilaC, ultColC).getValues() : [];
   const nonWorkingDays = [];
   const tz = Session.getScriptTimeZone() || 'America/Lima';
 
@@ -448,7 +450,9 @@ function updateNonWorkingDay(dateString, isNonWorking) {
     hojaCalendario.appendRow(['Fecha', 'Laborable']);
   }
   
-  const datos = hojaCalendario.getDataRange().getValues();
+  const ultFilaC = hojaCalendario.getLastRow();
+  const ultColC = hojaCalendario.getLastColumn();
+  const datos = ultFilaC > 0 && ultColC > 0 ? hojaCalendario.getRange(1, 1, ultFilaC, ultColC).getValues() : [];
   const tz = Session.getScriptTimeZone() || 'America/Lima';
   
   // CORRECCIÓN 2: Comparamos las fechas en formato texto 'yyyy-MM-dd' para evitar fallos de zona horaria
@@ -483,7 +487,9 @@ function registrarInasistencias() {
 
   const hojaCalendario = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(HOJA_CALENDARIO);
   if (hojaCalendario) {
-    const calendarioDatos = hojaCalendario.getDataRange().getValues();
+    const ultFilaC = hojaCalendario.getLastRow();
+    const ultColC = hojaCalendario.getLastColumn();
+    const calendarioDatos = ultFilaC > 0 && ultColC > 0 ? hojaCalendario.getRange(1, 1, ultFilaC, ultColC).getValues() : [];
     for (let i = 1; i < calendarioDatos.length; i++) {
       const fechaCelda = calendarioDatos[i][0];
       if (fechaCelda instanceof Date && !isNaN(fechaCelda)) {
@@ -500,7 +506,7 @@ function registrarInasistencias() {
     }
   }
 
-  const todosLosAlumnos = getEstudiantesFromCache();
+  const todosLosAlumnos = actualizarCacheEstudiantes();
   const dnisAlumnos = Object.keys(todosLosAlumnos);
   
   const dnisAsistieron = [];
