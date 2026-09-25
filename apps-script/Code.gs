@@ -15,6 +15,7 @@ const HOJA_JUSTIFICACIONES = 'Justificaciones';
 const HOJA_CALENDARIO = 'CALENDARIO_ANUAL';
 
 // --- API DE WHATSAPP (META CLOUD API) ---
+// IMPORTANTE: Recuerda pegar aquí tu token real de Meta
 const META_API_TOKEN = 'PEGA_AQUI_TU_TOKEN_DE_ACCESO_TEMPORAL'; 
 const META_PHONE_ID = '1234134843119386'; // Tu Phone Number ID
 
@@ -32,7 +33,7 @@ function doGet(e) {
     
     if (action === 'buscar_estudiante') {
       const dni = String(e.parameter.dni || '').trim();
-      if (!/^\d{8}$/.test(dni)) {
+      if (!/^\\d{8}$/.test(dni)) {
         return jsonResponse({ success: false, message: 'El DNI debe tener 8 dígitos.' });
       }
       const estudiante = buscarEstudiante(dni);
@@ -62,7 +63,7 @@ function doPost(e) {
     if (action === 'justificar') {
       const fechaReq = data.fecha;
       const motivo = data.motivo;
-      if (!/^\d{8}$/.test(dni)) return jsonResponse({ success: false, message: 'DNI inválido.' });
+      if (!/^\\d{8}$/.test(dni)) return jsonResponse({ success: false, message: 'DNI inválido.' });
       if (!fechaReq || !motivo) return jsonResponse({ success: false, message: 'Datos incompletos.' });
       
       const estudiante = buscarEstudiante(dni);
@@ -82,18 +83,16 @@ function doPost(e) {
     if (action !== 'registrar') {
       return jsonResponse({ success: false, message: 'Acción no válida para POST.' });
     }
-    if (!/^\d{8}$/.test(dni)) {
+    if (!/^\\d{8}$/.test(dni)) {
       return jsonResponse({ success: false, message: 'El DNI debe contener 8 dígitos numéricos.' });
     }
 
-    // --- INICIO DE LA CORRECCIÓN CON PROPERTIES SERVICE ---
     const SCRIPT_PROPERTIES = PropertiesService.getScriptProperties();
     const hoy = new Date();
     const tz = Session.getScriptTimeZone() || 'America/Lima';
     const fechaKey = Utilities.formatDate(hoy, tz, 'yyyy-MM-dd');
     const propertyKey = `asistencia_${dni}_${fechaKey}`;
 
-    // 1. Revisar la "lista de control" rápida.
     if (SCRIPT_PROPERTIES.getProperty(propertyKey)) {
       return jsonResponse({
         success: false,
@@ -102,7 +101,6 @@ function doPost(e) {
         estudiante: buscarEstudiante(dni)
       });
     }
-    // --- FIN DE LA CORRECCIÓN ---
 
     const estudiante = buscarEstudiante(dni);
     if (!estudiante) {
@@ -118,20 +116,13 @@ function doPost(e) {
     hoja.appendRow([fecha, hora, dni, estudiante.nombre, estado]);
     SpreadsheetApp.flush();
 
-    // 2. Marcar en la "lista de control" que este DNI ya se registró hoy.
     SCRIPT_PROPERTIES.setProperty(propertyKey, 'registrado');
 
-    // --- 3. ENVIAR MENSAJE DE WHATSAPP (META API) ---
     let whatsappEnviado = false;
     if (estudiante.celular && META_API_TOKEN !== 'PEGA_AQUI_TU_TOKEN_DE_ACCESO_TEMPORAL') {
       try {
         const url = `https://graph.facebook.com/v25.0/${META_PHONE_ID}/messages`;
-        
-        // Limpiamos el número para asegurar que solo tenga dígitos (Meta no acepta el signo '+')
-        const numeroDestino = estudiante.celular.replace(/\D/g, '');
-        
-        // Payload usando la API oficial
-        // IMPORTANTE: Fuera de la ventana de 24 horas, Meta exige usar una "Plantilla" (Template).
+        const numeroDestino = estudiante.celular.replace(/\\D/g, '');
         const payload = {
           "messaging_product": "whatsapp",
           "to": numeroDestino,
@@ -168,7 +159,6 @@ function doPost(e) {
         } else {
           const errorMsg = res.getContentText();
           console.error('Meta API Error: ' + errorMsg);
-          // Escribir el error en la hoja de Registro para que el usuario pueda verlo de inmediato
           hoja.getRange(hoja.getLastRow(), 6).setValue('Error Meta: ' + errorMsg);
         }
       } catch (error) {
@@ -193,7 +183,7 @@ function doPost(e) {
 }
 
 // ------------------------------------------------------------
-// FUNCIONES DE LÓGICA DE NEGOCIO
+// FUNCIONES DE LÓGICA DE NEGOCIO Y CACHÉ
 // ------------------------------------------------------------
 
 const CACHE_KEY_ESTUDIANTES = 'estudiantes_cache';
@@ -228,16 +218,17 @@ function actualizarCacheEstudiantes() {
     }
   }
 
-  PropertiesService.getScriptProperties().setProperty(CACHE_KEY_ESTUDIANTES, JSON.stringify(estudiantesObj));
+  // CORRECCIÓN 1: Usamos CacheService en vez de PropertiesService para soportar miles de alumnos sin límite de 9KB.
+  const cache = CacheService.getScriptCache();
+  cache.put(CACHE_KEY_ESTUDIANTES, JSON.stringify(estudiantesObj), 21600); // Guardado por 6 horas
   return estudiantesObj;
 }
 
 function getEstudiantesFromCache() {
-  const cache = PropertiesService.getScriptProperties().getProperty(CACHE_KEY_ESTUDIANTES);
+  const cache = CacheService.getScriptCache().get(CACHE_KEY_ESTUDIANTES);
   if (cache) {
     return JSON.parse(cache);
   }
-  // Si el caché no existe, lo creamos y lo devolvemos
   return actualizarCacheEstudiantes();
 }
 
@@ -250,25 +241,16 @@ function calcularEstado(fechaHora, nivel) {
   const minutosDelDia = fechaHora.getHours() * 60 + fechaHora.getMinutes();
   
   if (String(nivel).toLowerCase().includes('primaria')) {
-    // Hora de ingreso: 08:00 am
-    // Asistencia hasta 08:15 am (495 min)
-    // Tardanza hasta 10:00 am (600 min - pasadas 2 horas)
-    // Falta después de las 10:00 am
     if (minutosDelDia <= 495) return 'Asistió';
     if (minutosDelDia <= 600) return 'Tardanza';
     return 'Falta';
   }
   
   if (String(nivel).toLowerCase().includes('secundaria')) {
-    // Hora de ingreso: 02:00 pm (14:00)
-    // Asistencia hasta 02:15 pm (855 min)
-    // Tardanza hasta 04:00 pm (960 min - pasadas 2 horas)
-    // Falta después de las 04:00 pm
     if (minutosDelDia <= 855) return 'Asistió';
     if (minutosDelDia <= 960) return 'Tardanza';
     return 'Falta';
   }
-  
   return 'Falta';
 }
 
@@ -276,7 +258,6 @@ function obtenerDashboard(meses) {
   meses = Number(meses) || 1;
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   
-  // 1. Obtener todos los estudiantes activos
   const datosEstudiantes = ss.getSheetByName(HOJA_ESTUDIANTES).getDataRange().getValues();
   const estudiantesTotales = [];
   if (datosEstudiantes.length > 1) {
@@ -303,9 +284,8 @@ function obtenerDashboard(meses) {
 
   let asistencias = 0, tardanzas = 0, faltas = 0, justificados = 0;
   const registros = [];
-  const registrosPorFecha = {}; // Para saber quiénes registraron asistencia cada día
+  const registrosPorFecha = {};
 
-  // 1.5 Obtener las justificaciones
   const datosJustificaciones = ss.getSheetByName(HOJA_JUSTIFICACIONES).getDataRange().getValues();
   const mapJustificaciones = {};
   for (let i = 1; i < datosJustificaciones.length; i++) {
@@ -315,7 +295,6 @@ function obtenerDashboard(meses) {
     mapJustificaciones[`${fDate}_${d}`] = datosJustificaciones[i][2];
   }
 
-  // 2. Procesar los registros reales de la hoja
   for (let i = 1; i < datos.length; i++) {
     const fechaCelda = datos[i][0];
     if (!fechaCelda) continue;
@@ -341,12 +320,11 @@ function obtenerDashboard(meses) {
       
       if (estado === 'Asistió') asistencias++;
       if (estado === 'Tardanza') tardanzas++;
-      if (estado === 'Falta') faltas++; // Por si hay faltas puestas manualmente
+      if (estado === 'Falta') faltas++; 
       if (estado === 'Justificado') justificados++;
     }
   }
 
-  // 3. Calcular las faltas virtuales (alumnos que no escanearon) para cada día escolar
   for (const fechaStr in registrosPorFecha) {
     const dnisRegistrados = registrosPorFecha[fechaStr];
     for (const est of estudiantesTotales) {
@@ -362,7 +340,6 @@ function obtenerDashboard(meses) {
           });
           justificados++;
         } else {
-          // No está en la lista de ese día -> es Falta
           registros.push({
             fecha: fechaStr,
             hora: '--:--',
@@ -376,13 +353,11 @@ function obtenerDashboard(meses) {
     }
   }
 
-  // 4. Ordenar los registros por fecha (del más reciente al más antiguo)
   registros.sort((a, b) => {
     const fA = convertirFecha(a.fecha);
     const fB = convertirFecha(b.fecha);
     if (fA > fB) return -1;
     if (fA < fB) return 1;
-    // Si son la misma fecha, priorizamos Asistió > Tardanza > Falta
     return a.estado === 'Falta' ? 1 : (b.estado === 'Falta' ? -1 : 0);
   });
 
@@ -404,33 +379,13 @@ function obtenerDashboard(meses) {
 }
 
 function obtenerEstudiantes() {
-    const datos = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(HOJA_ESTUDIANTES).getDataRange().getValues();
-    if (datos.length < 2) return { success: true, estudiantes: [] };
-    
-    const headers = datos[0].map(h => String(h).trim().toLowerCase());
-    const cDNI = headers.indexOf('dni');
-    const cNombre = headers.indexOf('nombre');
-    const cGrado = headers.indexOf('grado');
-    const cNivel = headers.indexOf('nivel');
-    
-    if (cDNI === -1) return { success: true, estudiantes: [] };
-
-    const estudiantes = datos.slice(1).map(r => ({ 
-      dni: String(r[cDNI]), 
-      nombre: cNombre !== -1 ? r[cNombre] : '', 
-      grado: cGrado !== -1 ? r[cGrado] : '', 
-      nivel: cNivel !== -1 ? r[cNivel] : '' 
-    })).filter(e => e.dni);
-
+    const estudiantesObj = getEstudiantesFromCache();
+    const estudiantes = Object.values(estudiantesObj);
     return {
         success: true,
         estudiantes: estudiantes
     };
 }
-
-// ------------------------------------------------------------
-// FUNCIONES UTILITARIAS
-// ------------------------------------------------------------
 
 function convertirFecha(fechaStr) {
   const partes = String(fechaStr).split('/');
@@ -445,220 +400,16 @@ function jsonResponse(data) {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
-// Función exclusiva para forzar a Google a pedir el permiso de conexión externa
-function pedirPermisos() {
-  UrlFetchApp.fetch("https://google.com");
-}
-
-
 // =================================================================================
-// SCRIPT DE CONFIGURACIÓN INICIAL DEL SISTEMA - LA "CAJA DE HERRAMIENTAS"
+// MENÚ LATERAL Y CALENDARIO
 // =================================================================================
-
-function configurarSistema() {
-
-  const ui = SpreadsheetApp.getUi();
-
-  const confirmacion = ui.alert(
-    'Confirmar Configuración',
-    'Este script configurará las hojas "BD_Estudiantes", "Registro_Diario" y "Justificaciones".\n\nADVERTENCIA: Se borrará cualquier contenido existente en estas hojas.\n\n¿Desea continuar?',
-    ui.ButtonSet.YES_NO
-  );
-
-  if (confirmacion !== ui.Button.YES) {
-    ui.alert('Configuración cancelada por el usuario.');
-    return;
-  }
-
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-
-  if (ss.getName() !== 'Qr Asistencia') {
-    ui.alert(
-      'Advertencia de Nombre',
-      'El archivo actual se llama "' + ss.getName() + '".\n\n' +
-      'Se recomienda renombrarlo a:\n' +
-      '"Qr Asistencia" para mantener la consistencia.',
-      ui.ButtonSet.OK
-    );
-  }
-
-  let estudiantes = ss.getSheetByName('BD_Estudiantes');
-  if (!estudiantes) {
-    estudiantes = ss.insertSheet('BD_Estudiantes');
-  }
-  estudiantes.clear();
-  estudiantes.getRange('A1:E1').setValues([['DNI', 'Nombre', 'Grado', 'Nivel', 'Celular']]);
-
-  let registro = ss.getSheetByName('Registro_Diario');
-  if (!registro) {
-    registro = ss.insertSheet('Registro_Diario');
-  }
-  registro.clear();
-  registro.getRange('A1:E1').setValues([['Fecha', 'Hora', 'DNI', 'Nombre', 'Estado']]);
-
-  let justificaciones = ss.getSheetByName('Justificaciones');
-  if (!justificaciones) {
-    justificaciones = ss.insertSheet('Justificaciones');
-  }
-  justificaciones.clear();
-  justificaciones.getRange('A1:C1').setValues([['Fecha', 'DNI', 'Motivo']]);
-
-  const estudiantesPrueba = [
-    ['12345678', 'Juan Pérez López', '3ro', 'Primaria', '+51999999999'],
-    ['23456789', 'María López García', '4to', 'Primaria', '+51999999998'],
-    ['34567890', 'Pedro Sánchez Díaz', '1ro', 'Secundaria', '+51999999997'],
-    ['45678901', 'Ana Torres Ruiz', '5to', 'Secundaria', '+51999999996']
-  ];
-
-  estudiantes.getRange(2, 1, estudiantesPrueba.length, 5).setValues(estudiantesPrueba);
-
-  const rangosEncabezados = [
-    estudiantes.getRange('A1:E1'),
-    registro.getRange('A1:E1'),
-    justificaciones.getRange('A1:C1')
-  ];
-
-  rangosEncabezados.forEach(rango => {
-    rango
-      .setFontWeight('bold')
-      .setHorizontalAlignment('center')
-      .setVerticalAlignment('middle')
-      .setBackground('#EEEEEE');
-  });
-
-  estudiantes.setColumnWidth(1, 120);
-  estudiantes.setColumnWidth(2, 250);
-  estudiantes.setColumnWidth(3, 120);
-  estudiantes.setColumnWidth(4, 130);
-  estudiantes.setColumnWidth(5, 130);
-
-  registro.setColumnWidth(1, 120);
-  registro.setColumnWidth(2, 100);
-  registro.setColumnWidth(3, 120);
-  registro.setColumnWidth(4, 250);
-  registro.setColumnWidth(5, 130);
-
-  justificaciones.setColumnWidth(1, 120);
-  justificaciones.setColumnWidth(2, 120);
-  justificaciones.setColumnWidth(3, 400);
-
-  registro.getRange('A2:A').setNumberFormat('dd/MM/yyyy');
-  registro.getRange('B2:B').setNumberFormat('HH:mm:ss');
-  justificaciones.getRange('A2:A').setNumberFormat('dd/MM/yyyy');
-
-  estudiantes.setFrozenRows(1);
-  registro.setFrozenRows(1);
-  justificaciones.setFrozenRows(1);
-
-  [estudiantes, registro, justificaciones].forEach(hoja => {
-    if (hoja.getFilter()) {
-      hoja.getFilter().remove();
-    }
-    hoja.getRange(1, 1, hoja.getMaxRows(), hoja.getMaxColumns()).createFilter();
-  });
-
-  const reglaNivel = SpreadsheetApp.newDataValidation()
-    .requireValueInList(['Primaria', 'Secundaria'], true)
-    .setAllowInvalid(false)
-    .setHelpText('Seleccione un nivel válido: Primaria o Secundaria.')
-    .build();
-
-  estudiantes.getRange('D2:D').setDataValidation(reglaNivel);
-
-  const reglaEstado = SpreadsheetApp.newDataValidation()
-    .requireValueInList(['Asistió', 'Tardanza', 'Falta'], true)
-    .setAllowInvalid(false)
-    .setHelpText('Seleccione un estado válido: Asistió, Tardanza o Falta.')
-    .build();
-
-  registro.getRange('E2:E').setDataValidation(reglaEstado);
-
-  ss.setSpreadsheetTimeZone('America/Lima');
-
-  ss.setActiveSheet(estudiantes);
-  ss.moveActiveSheet(1);
-  ss.setActiveSheet(registro);
-  ss.moveActiveSheet(2);
-  ss.setActiveSheet(justificaciones);
-  ss.moveActiveSheet(3);
-  ss.setActiveSheet(estudiantes);
-
-  ui.alert(
-    '✓ Configuración Completada',
-    'El archivo "Qr Asistencia" ha sido configurado correctamente para IEP MILLENIUM.',
-    ui.ButtonSet.OK
-  );
-}
-
-function registrarInasistencias() {
-  const SCRIPT_PROPERTIES = PropertiesService.getScriptProperties();
-  const hoy = new Date();
-  const tz = Session.getScriptTimeZone() || 'America/Lima';
-  const fechaHoyStr = Utilities.formatDate(hoy, tz, 'dd/MM/yyyy');
-
-  // 1. VERIFICAR SI HOY ES UN DÍA LABORABLE
-  const hojaCalendario = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(HOJA_CALENDARIO);
-  if (hojaCalendario) {
-    const calendarioDatos = hojaCalendario.getDataRange().getValues();
-    for (let i = 1; i < calendarioDatos.length; i++) {
-      const fechaCelda = new Date(calendarioDatos[i][0]);
-      const fechaCeldaStr = Utilities.formatDate(fechaCelda, tz, 'dd/MM/yyyy');
-      if (fechaCeldaStr === fechaHoyStr) {
-        const esLaborable = String(calendarioDatos[i][1]).toUpperCase();
-        if (esLaborable === 'NO') {
-          console.log(`Hoy (${fechaHoyStr}) es un día no laborable. No se registrarán faltas.`);
-          return; // Detiene la ejecución
-        }
-        break; // Fecha encontrada, no es necesario seguir buscando
-      }
-    }
-  }
-
-  // 2. OBTENER LISTA COMPLETA DE ALUMNOS Y ASISTENCIAS DE HOY
-  const todosLosAlumnos = getEstudiantesFromCache();
-  const dnisAlumnos = Object.keys(todosLosAlumnos);
-  
-  const fechaKey = Utilities.formatDate(hoy, tz, 'yyyy-MM-dd');
-  const dnisAsistieron = [];
-  dnisAlumnos.forEach(dni => {
-    const propertyKey = `asistencia_${dni}_${fechaKey}`;
-    if (SCRIPT_PROPERTIES.getProperty(propertyKey)) {
-      dnisAsistieron.push(dni);
-    }
-  });
-
-  // 3. DETERMINAR QUIÉNES FALTARON
-  const dnisFaltaron = dnisAlumnos.filter(dni => !dnisAsistieron.includes(dni));
-
-  // 4. REGISTRAR LAS FALTAS EN LA HOJA DE REGISTRO
-  if (dnisFaltaron.length > 0) {
-    const hojaRegistro = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(HOJA_REGISTRO);
-    const nuevasFilas = [];
-    const horaFalta = 'N/A'; // O la hora que definas para el cierre
-    const estadoFalta = 'Falta';
-
-    dnisFaltaron.forEach(dni => {
-      const alumno = todosLosAlumnos[dni];
-      if (alumno) {
-        nuevasFilas.push([fechaHoyStr, horaFalta, dni, alumno.nombre, estadoFalta]);
-      }
-    });
-
-    if (nuevasFilas.length > 0) {
-      hojaRegistro.getRange(hojaRegistro.getLastRow() + 1, 1, nuevasFilas.length, nuevasFilas[0].length).setValues(nuevasFilas);
-      SpreadsheetApp.flush();
-    }
-  }
-  
-  console.log(`Proceso de inasistencias completado. Se registraron ${dnisFaltaron.length} faltas.`);
-}
 
 function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('Asistencia QR')
     .addItem('Abrir Calendario de Feriados', 'abrirSidebarCalendario')
     .addSeparator()
-    .addItem('Actualizar Caché de Alumnos', 'actualizarCacheAlumnos')
+    .addItem('Actualizar Caché de Alumnos', 'actualizarCacheEstudiantes')
     .addToUi();
 }
 
@@ -677,10 +428,12 @@ function getNonWorkingDays(year, month) {
   const tz = Session.getScriptTimeZone() || 'America/Lima';
 
   for (let i = 1; i < datos.length; i++) {
-    const fecha = new Date(datos[i][0]);
-    if (fecha.getFullYear() === year && (fecha.getMonth() + 1) === month) {
-      if (String(datos[i][1]).toUpperCase() === 'NO') {
-        nonWorkingDays.push(Utilities.formatDate(fecha, tz, 'yyyy-MM-dd'));
+    const fechaCelda = datos[i][0];
+    if (fechaCelda instanceof Date && !isNaN(fechaCelda)) {
+      if (fechaCelda.getFullYear() === year && (fechaCelda.getMonth() + 1) === month) {
+        if (String(datos[i][1]).toUpperCase() === 'NO') {
+          nonWorkingDays.push(Utilities.formatDate(fechaCelda, tz, 'yyyy-MM-dd'));
+        }
       }
     }
   }
@@ -688,27 +441,96 @@ function getNonWorkingDays(year, month) {
 }
 
 function updateNonWorkingDay(dateString, isNonWorking) {
-  const hojaCalendario = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(HOJA_CALENDARIO);
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  let hojaCalendario = ss.getSheetByName(HOJA_CALENDARIO);
   if (!hojaCalendario) {
-    throw new Error('La hoja CALENDARIO_ANUAL no existe.');
+    hojaCalendario = ss.insertSheet(HOJA_CALENDARIO);
+    hojaCalendario.appendRow(['Fecha', 'Laborable']);
   }
+  
   const datos = hojaCalendario.getDataRange().getValues();
-  const fechaBuscada = new Date(dateString);
   const tz = Session.getScriptTimeZone() || 'America/Lima';
   
-  // Ajustar la fechaBuscada a la zona horaria del script para evitar errores de un día
-  fechaBuscada.setMinutes(fechaBuscada.getMinutes() + fechaBuscada.getTimezoneOffset());
-
+  // CORRECCIÓN 2: Comparamos las fechas en formato texto 'yyyy-MM-dd' para evitar fallos de zona horaria
   for (let i = 1; i < datos.length; i++) {
-    const fechaCelda = new Date(datos[i][0]);
-    if (fechaCelda.getFullYear() === fechaBuscada.getFullYear() &&
-        fechaCelda.getMonth() === fechaBuscada.getMonth() &&
-        fechaCelda.getDate() === fechaBuscada.getDate()) {
-      
-      hojaCalendario.getRange(i + 1, 2).setValue(isNonWorking ? 'NO' : '');
-      SpreadsheetApp.flush();
-      return { success: true, message: 'Fecha actualizada' };
+    const fechaCelda = datos[i][0];
+    if (fechaCelda instanceof Date && !isNaN(fechaCelda)) {
+      const fechaCeldaStr = Utilities.formatDate(fechaCelda, tz, 'yyyy-MM-dd');
+      if (fechaCeldaStr === dateString) {
+        hojaCalendario.getRange(i + 1, 2).setValue(isNonWorking ? 'NO' : '');
+        return { success: true, message: 'Fecha actualizada' };
+      }
     }
   }
-  throw new Error('La fecha no fue encontrada en el calendario.');
+  
+  // Si la fecha no estaba en el Excel, la agregamos automáticamente
+  const [año, mes, dia] = dateString.split('-');
+  const nuevaFecha = new Date(año, mes - 1, dia);
+  hojaCalendario.appendRow([nuevaFecha, isNonWorking ? 'NO' : '']);
+  return { success: true, message: 'Fecha nueva agregada' };
+}
+
+// =================================================================================
+// PROCESO DE INASISTENCIAS
+// =================================================================================
+
+function registrarInasistencias() {
+  const SCRIPT_PROPERTIES = PropertiesService.getScriptProperties();
+  const hoy = new Date();
+  const tz = Session.getScriptTimeZone() || 'America/Lima';
+  const fechaHoyStr = Utilities.formatDate(hoy, tz, 'dd/MM/yyyy');
+  const fechaKey = Utilities.formatDate(hoy, tz, 'yyyy-MM-dd');
+
+  const hojaCalendario = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(HOJA_CALENDARIO);
+  if (hojaCalendario) {
+    const calendarioDatos = hojaCalendario.getDataRange().getValues();
+    for (let i = 1; i < calendarioDatos.length; i++) {
+      const fechaCelda = calendarioDatos[i][0];
+      if (fechaCelda instanceof Date && !isNaN(fechaCelda)) {
+        const fechaCeldaStr = Utilities.formatDate(fechaCelda, tz, 'dd/MM/yyyy');
+        if (fechaCeldaStr === fechaHoyStr) {
+          const esLaborable = String(calendarioDatos[i][1]).toUpperCase();
+          if (esLaborable === 'NO') {
+            console.log(`Hoy (${fechaHoyStr}) es un día no laborable. No se registrarán faltas.`);
+            return; 
+          }
+          break; 
+        }
+      }
+    }
+  }
+
+  const todosLosAlumnos = getEstudiantesFromCache();
+  const dnisAlumnos = Object.keys(todosLosAlumnos);
+  
+  const dnisAsistieron = [];
+  dnisAlumnos.forEach(dni => {
+    const propertyKey = `asistencia_${dni}_${fechaKey}`;
+    if (SCRIPT_PROPERTIES.getProperty(propertyKey)) {
+      dnisAsistieron.push(dni);
+    }
+  });
+
+  const dnisFaltaron = dnisAlumnos.filter(dni => !dnisAsistieron.includes(dni));
+  const hojaRegistro = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(HOJA_REGISTRO);
+  const nuevasFilas = [];
+
+  dnisFaltaron.forEach(dni => {
+    // CORRECCIÓN 3: Evitar registrar la falta dos veces si el script se ejecuta de nuevo hoy
+    const faltaKey = `falta_${dni}_${fechaKey}`;
+    if (!SCRIPT_PROPERTIES.getProperty(faltaKey)) {
+      const alumno = todosLosAlumnos[dni];
+      if (alumno) {
+        nuevasFilas.push([fechaHoyStr, 'N/A', dni, alumno.nombre, 'Falta']);
+        SCRIPT_PROPERTIES.setProperty(faltaKey, 'registrada');
+      }
+    }
+  });
+
+  if (nuevasFilas.length > 0) {
+    hojaRegistro.getRange(hojaRegistro.getLastRow() + 1, 1, nuevasFilas.length, nuevasFilas[0].length).setValues(nuevasFilas);
+    SpreadsheetApp.flush();
+  }
+  
+  console.log(`Proceso de inasistencias completado. Se registraron ${nuevasFilas.length} faltas nuevas.`);
 }
