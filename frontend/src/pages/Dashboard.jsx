@@ -33,7 +33,7 @@ export default function Dashboard(){
       registros = registros.filter(r => r.fecha === formattedDate);
     }
     
-    const asistencias = registros.filter(r => r.estado === 'Asistió').length;
+    const asistencias = registros.filter(r => r.estado.includes('Asisti')).length;
     const tardanzas = registros.filter(r => r.estado === 'Tardanza').length;
     const faltas = registros.filter(r => r.estado === 'Falta').length;
     const justificados = registros.filter(r => r.estado === 'Justificado').length;
@@ -52,7 +52,7 @@ export default function Dashboard(){
     const regs = data.registros.filter(r => r.dni === selectedStudent);
     if (!regs.length) return null;
     
-    const asistencias = regs.filter(r => r.estado === 'Asistió').length;
+    const asistencias = regs.filter(r => r.estado.includes('Asisti')).length;
     const tardanzas = regs.filter(r => r.estado === 'Tardanza').length;
     const faltas = regs.filter(r => r.estado === 'Falta').length;
     const justificados = regs.filter(r => r.estado === 'Justificado').length;
@@ -202,7 +202,7 @@ export default function Dashboard(){
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/50">
-                {(filteredData?.registros || []).map((r, i) => (
+                {(filteredData?.registros || []).slice(0, 100).map((r, i) => (
                   <tr 
                     key={i} 
                     onClick={() => setSelectedStudent(r.dni)}
@@ -213,7 +213,7 @@ export default function Dashboard(){
                     <td className="px-6 py-4 font-medium text-blue-400 hover:text-blue-300 transition-colors">{r.nombre}</td>
                     <td className="px-6 py-4">
                       <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                        r.estado === 'Asistió' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 
+                        r.estado.includes('Asisti') ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 
                         r.estado === 'Tardanza' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' : 
                         r.estado === 'Justificado' ? 'bg-violet-500/10 text-violet-400 border border-violet-500/20' : 
                         'bg-red-500/10 text-red-400 border border-red-500/20'
@@ -223,6 +223,13 @@ export default function Dashboard(){
                     </td>
                   </tr>
                 ))}
+                {filteredData?.registros?.length > 100 && (
+                  <tr>
+                    <td colSpan="4" className="px-6 py-4 text-center text-xs text-slate-500 bg-slate-900/30">
+                      Mostrando los 100 registros más recientes. Descarga el CSV para ver los {filteredData.registros.length} registros completos.
+                    </td>
+                  </tr>
+                )}
                 {(!filteredData?.registros || filteredData.registros.length === 0) && (
                   <tr>
                     <td colSpan="4" className="px-6 py-10 text-center text-slate-500">
@@ -291,7 +298,7 @@ export default function Dashboard(){
                         <td className="px-4 py-3 text-slate-400">{r.hora}</td>
                         <td className="px-4 py-3">
                           <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${
-                            r.estado === 'Asistió' ? 'text-emerald-400' : 
+                            r.estado.includes('Asisti') ? 'text-emerald-400' : 
                             r.estado === 'Tardanza' ? 'text-amber-400' : 
                             r.estado === 'Justificado' ? 'text-violet-400' : 
                             'text-red-400'

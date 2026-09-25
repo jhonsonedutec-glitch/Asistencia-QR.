@@ -72,25 +72,39 @@ export default function Scanner() {
               <p className="mt-4 font-semibold">Registrando asistencia...</p>
             </div>
           </div>
-        ) : (
-          <QRScanner onScan={process} />
-        )} 
-        
-        {result && (
-          <div className={`mt-5 rounded-2xl p-5 ${result.success ? 'bg-blue-600/50 text-white' : 'bg-red-500/50 text-white'}`}>
-            <div className="text-center text-3xl">{result.success ? '✓' : '!'}</div>
-            <h2 className="mt-2 text-center font-bold">{result.message}</h2>
+        ) : result ? (
+          <div className={`min-h-80 flex flex-col justify-center items-center rounded-2xl p-6 ${result.success ? 'bg-blue-600/20 border border-blue-500/50 text-white' : 'bg-red-500/20 border border-red-500/50 text-white'}`}>
+            <div className={`flex h-16 w-16 items-center justify-center rounded-full ${result.success ? 'bg-blue-500' : 'bg-red-500'} text-3xl font-black shadow-lg`}>
+              {result.success ? '✓' : '!'}
+            </div>
+            <h2 className="mt-4 text-center text-xl font-bold">{result.message}</h2>
             {result.estudiante && (
-              <div className="mt-4 text-center text-sm">
-                <p className="font-bold">{result.estudiante.nombre}</p>
-                <p>{result.estudiante.grado} · {result.estudiante.nivel}</p>
+              <div className="mt-4 w-full rounded-xl bg-slate-900/50 p-4 text-center text-sm shadow-inner">
+                <p className="text-lg font-black text-blue-300">{result.estudiante.nombre}</p>
+                <p className="text-slate-300 mt-1">{result.estudiante.grado} · {result.estudiante.nivel}</p>
                 {result.asistencia && (
-                  <p className="mt-2">{result.asistencia.fecha} · {result.asistencia.hora} · <b>{result.asistencia.estado}</b></p>
+                  <div className="mt-3 inline-flex items-center gap-2 rounded-lg bg-slate-800 px-3 py-1.5 font-medium">
+                    <span className="text-slate-400">{result.asistencia.fecha}</span>
+                    <span className="text-slate-600">•</span>
+                    <span className="text-slate-400">{result.asistencia.hora}</span>
+                    <span className="text-slate-600">•</span>
+                    <span className={`font-bold ${result.asistencia.estado === 'Asistió' ? 'text-emerald-400' : result.asistencia.estado === 'Falta' ? 'text-red-400' : 'text-amber-400'}`}>
+                      {result.asistencia.estado}
+                    </span>
+                  </div>
                 )}
               </div>
             )}
+            <button 
+              onClick={() => setResult(null)}
+              className="mt-6 w-full rounded-xl bg-slate-800 py-3 font-bold text-white shadow hover:bg-slate-700 transition"
+            >
+              Escanear Siguiente Alumno
+            </button>
           </div>
-        )}
+        ) : (
+          <QRScanner onScan={process} />
+        )} 
       </div>
     </main>
   );
