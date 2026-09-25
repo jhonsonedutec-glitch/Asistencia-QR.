@@ -309,6 +309,7 @@ function obtenerDashboard(meses) {
       
       registros.push({
         fecha: fechaStr,
+        timestamp: fechaRegistro.getTime(),
         hora: horaStr,
         dni: dni,
         nombre: datos[i][3],
@@ -327,12 +328,14 @@ function obtenerDashboard(meses) {
 
   for (const fechaStr in registrosPorFecha) {
     const dnisRegistrados = registrosPorFecha[fechaStr];
+    const timestamp = convertirFecha(fechaStr).getTime();
     for (const est of estudiantesTotales) {
       if (!dnisRegistrados.has(est.dni)) {
         const key = `${fechaStr}_${est.dni}`;
         if (mapJustificaciones[key]) {
            registros.push({
             fecha: fechaStr,
+            timestamp: timestamp,
             hora: '--:--',
             dni: est.dni,
             nombre: est.nombre,
@@ -342,6 +345,7 @@ function obtenerDashboard(meses) {
         } else {
           registros.push({
             fecha: fechaStr,
+            timestamp: timestamp,
             hora: '--:--',
             dni: est.dni,
             nombre: est.nombre,
@@ -354,10 +358,8 @@ function obtenerDashboard(meses) {
   }
 
   registros.sort((a, b) => {
-    const fA = convertirFecha(a.fecha);
-    const fB = convertirFecha(b.fecha);
-    if (fA > fB) return -1;
-    if (fA < fB) return 1;
+    if (a.timestamp > b.timestamp) return -1;
+    if (a.timestamp < b.timestamp) return 1;
     return a.estado === 'Falta' ? 1 : (b.estado === 'Falta' ? -1 : 0);
   });
 
