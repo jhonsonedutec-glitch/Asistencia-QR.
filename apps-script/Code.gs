@@ -134,7 +134,7 @@ function doPost(e) {
     if (estudiante.celular && META_API_TOKEN !== 'PEGA_AQUI_TU_TOKEN_DE_ACCESO_TEMPORAL') {
       try {
         const url = `https://graph.facebook.com/v25.0/${META_PHONE_ID}/messages`;
-        const numeroDestino = estudiante.celular.replace(/\d/g, '');
+        const celularLimpio = String(estudiante.celular).replace(/\D/g, ''); const numeroDestino = celularLimpio.startsWith('51') ? celularLimpio : '51' + celularLimpio;
         const payload = {
           "messaging_product": "whatsapp",
           "to": numeroDestino,
