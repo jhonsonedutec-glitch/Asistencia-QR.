@@ -71,14 +71,17 @@ export default function Dashboard(){
     if (!filteredData || !filteredData.registros.length) return;
     const headers = ['Fecha,Hora,DNI,Estudiante,Estado'];
     const rows = filteredData.registros.map(r => `${r.fecha},${r.hora},${r.dni},"${r.nombre}",${r.estado}`);
-    const csvContent = "data:text/csv;charset=utf-8,\uFEFF" + headers.concat(rows).join("\n");
-    const encodedUri = encodeURI(csvContent);
+    const csvContent = "\uFEFF" + headers.concat(rows).join("\n");
+    
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
+    link.setAttribute("href", url);
     link.setAttribute("download", `asistencia_${selectedDate || 'historico'}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   const m = filteredData?.metricas || {total:0, asistencias:0, tardanzas:0, faltas:0, justificados:0, porcentaje:0};
