@@ -1,4 +1,4 @@
-const GAS_URL = 'https://script.google.com/macros/s/AKfycbz0_C6D2ywwcNJ7gWElJ1t7uNurrc4KUG99_LSObFYC4HJXW8xQymChDbWF4CDsms2c/exec';
+const GAS_URL = 'https://script.google.com/macros/s/AKfycbypcAyDZRhiv_3z-5OqjkZ5MkAmZeHzzg2LF_NiRvXBrGHE-wiHYASf08STy2GMWDh0/exec';
 
 const request = async (url, options={}) => {
   const r = await fetch(url, options);
