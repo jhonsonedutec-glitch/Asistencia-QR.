@@ -1,7 +1,6 @@
 const GAS_URL = 'https://script.google.com/macros/s/AKfycbz0_C6D2ywwcNJ7gWElJ1t7uNurrc4KUG99_LSObFYC4HJXW8xQymChDbWF4CDsms2c/exec';
 
 const request = async (url, options={}) => {
-  // Configurar redirect manual no es necesario con fetch y text/plain, el navegador lo sigue.
   const r = await fetch(url, options);
   const data = await r.json().catch(() => ({success:false, message:'Respuesta inválida'}));
   if (!r.ok) throw new Error(data.message || 'Error de servidor');
@@ -25,3 +24,5 @@ export const justificarFalta = (dni, fecha, motivo) => request(GAS_URL, {
 });
 
 export const obtenerEstudiantes = () => request(`${GAS_URL}?action=estudiantes`);
+
+export const obtenerHistorialPadre = dni => request(`${GAS_URL}?action=consulta_padre&dni=${dni}`);

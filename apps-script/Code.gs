@@ -43,6 +43,18 @@ function doGet(e) {
       return jsonResponse({ success: true, estudiante: estudiante });
     }
 
+    if (action === 'consulta_padre') {
+      const dni = String(e.parameter.dni || '').trim();
+      if (!/^\d{8}$/.test(dni)) {
+        return jsonResponse({ success: false, message: 'El DNI debe tener 8 digitos.' });
+      }
+      const estudiante = buscarEstudiante(dni);
+      if (!estudiante) {
+        return jsonResponse({ success: false, message: 'Estudiante no encontrado. Verifique el DNI.' });
+      }
+      return jsonResponse(obtenerHistorialPadre(dni, estudiante));
+    }
+
     if (action === 'estudiantes') {
       return jsonResponse(obtenerEstudiantes());
     }
@@ -243,6 +255,66 @@ function calcularEstado(fechaHora, nivel) {
     return 'Falta';
   }
   return 'Falta';
+}
+
+function obtenerHistorialPadre(dni, estudiante) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const hojaRegistro = ss.getSheetByName(HOJA_REGISTRO);
+  const ultFilaR = hojaRegistro.getLastRow();
+  const ultColR = hojaRegistro.getLastColumn();
+  const registrosDatos = ultFilaR > 1 ? hojaRegistro.getRange(2, 1, ultFilaR - 1, ultColR).getValues() : [];
+
+  const headers = hojaRegistro.getRange(1, 1, 1, ultColR).getValues()[0].map(h => String(h).trim().toLowerCase());
+  const cDNI = headers.indexOf('dni');
+  const cFecha = headers.indexOf('fecha');
+  const cHora = headers.indexOf('hora');
+  const cEstado = headers.indexOf('estado');
+
+  const historial = [];
+  let faltas = 0;
+  let tardanzas = 0;
+  let asistencias = 0;
+
+  if (cDNI !== -1) {
+    for (let i = 0; i < registrosDatos.length; i++) {
+      const fila = registrosDatos[i];
+      if (String(fila[cDNI]).trim() === dni) {
+        const estado = String(fila[cEstado] || '').trim();
+        const fecha = String(fila[cFecha] || '').trim();
+        const hora = String(fila[cHora] || '').trim();
+        
+        historial.push({
+          fecha: fecha,
+          hora: hora,
+          estado: estado
+        });
+
+        if (estado.includes('Asisti')) asistencias++;
+        else if (estado === 'Tardanza') tardanzas++;
+        else if (estado === 'Falta') faltas++;
+      }
+    }
+  }
+
+  // Ordenar el historial por fecha (de más reciente a más antiguo, asumiendo formato dd/MM/yyyy)
+  historial.sort((a, b) => {
+    const [d1, m1, y1] = a.fecha.split('/');
+    const [d2, m2, y2] = b.fecha.split('/');
+    const date1 = new Date(y1, m1 - 1, d1).getTime();
+    const date2 = new Date(y2, m2 - 1, d2).getTime();
+    return date2 - date1;
+  });
+
+  return { 
+    success: true, 
+    estudiante: estudiante,
+    estadisticas: {
+      asistencias: asistencias,
+      tardanzas: tardanzas,
+      faltas: faltas
+    },
+    historial: historial
+  };
 }
 
 function obtenerDashboard(meses) {
