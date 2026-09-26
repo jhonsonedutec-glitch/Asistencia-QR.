@@ -33,7 +33,7 @@ function doGet(e) {
     
     if (action === 'buscar_estudiante') {
       const dni = String(e.parameter.dni || '').trim();
-      if (!/^\\d{8}$/.test(dni)) {
+      if (!/^\d{8}$/.test(dni)) {
         return jsonResponse({ success: false, message: 'El DNI debe tener 8 dígitos.' });
       }
       const estudiante = buscarEstudiante(dni);
@@ -75,7 +75,7 @@ function doPost(e) {
     if (action === 'justificar') {
       const fechaReq = data.fecha;
       const motivo = data.motivo;
-      if (!/^\\d{8}$/.test(dni)) return jsonResponse({ success: false, message: 'DNI inválido.' });
+      if (!/^\d{8}$/.test(dni)) return jsonResponse({ success: false, message: 'DNI inválido.' });
       if (!fechaReq || !motivo) return jsonResponse({ success: false, message: 'Datos incompletos.' });
       
       const estudiante = buscarEstudiante(dni);
@@ -95,7 +95,7 @@ function doPost(e) {
     if (action !== 'registrar') {
       return jsonResponse({ success: false, message: 'Acción no válida para POST.' });
     }
-    if (!/^\\d{8}$/.test(dni)) {
+    if (!/^\d{8}$/.test(dni)) {
       return jsonResponse({ success: false, message: 'El DNI debe contener 8 dígitos numéricos.' });
     }
 
@@ -134,7 +134,7 @@ function doPost(e) {
     if (estudiante.celular && META_API_TOKEN !== 'PEGA_AQUI_TU_TOKEN_DE_ACCESO_TEMPORAL') {
       try {
         const url = `https://graph.facebook.com/v25.0/${META_PHONE_ID}/messages`;
-        const numeroDestino = estudiante.celular.replace(/\\D/g, '');
+        const numeroDestino = estudiante.celular.replace(/\d/g, '');
         const payload = {
           "messaging_product": "whatsapp",
           "to": numeroDestino,
