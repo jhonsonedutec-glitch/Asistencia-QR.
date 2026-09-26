@@ -281,7 +281,17 @@ function obtenerHistorialPadre(dni, estudiante) {
       if (String(fila[cDNI]).trim() === dni) {
         const estado = String(fila[cEstado] || '').trim();
         const fecha = String(fila[cFecha] || '').trim();
-        const hora = String(fila[cHora] || '').trim();
+        
+        let hora = '';
+        if (fila[cHora] instanceof Date) {
+          hora = Utilities.formatDate(fila[cHora], Session.getScriptTimeZone() || 'America/Lima', 'HH:mm:ss');
+        } else {
+          hora = String(fila[cHora] || '').trim();
+          if (hora.includes('1899')) {
+             const match = hora.match(/\d{2}:\d{2}:\d{2}/);
+             if (match) hora = match[0];
+          }
+        }
         
         historial.push({
           fecha: fecha,
