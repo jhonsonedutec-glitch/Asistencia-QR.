@@ -1,6 +1,25 @@
 {
-  "name":"millenium-asistencia-frontend","private":true,"version":"1.0.0","type":"module",
-  "scripts":{"dev":"vite","build":"vite build","preview":"vite preview"},
-  "dependencies":{"@vitejs/plugin-react":"latest","html5-qrcode":"latest","react":"latest","react-dom":"latest","recharts":"latest","qrcode.react":"latest"},
-  "devDependencies":{"@tailwindcss/vite":"latest","vite":"latest","tailwindcss":"latest"}
+  "name": "millenium-asistencia-frontend",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "latest",
+    "html5-qrcode": "latest",
+    "qrcode.react": "latest",
+    "react": "latest",
+    "react-dom": "latest",
+    "react-router-dom": "^7.18.4",
+    "recharts": "latest"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "latest",
+    "tailwindcss": "latest",
+    "vite": "latest"
+  }
 }

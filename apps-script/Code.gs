@@ -137,7 +137,7 @@ function doPost(e) {
         const celularLimpio = String(estudiante.celular).replace(/\D/g, ''); const numeroDestino = celularLimpio.startsWith('51') ? celularLimpio : '51' + celularLimpio;
         const payload = {
           "messaging_product": "whatsapp",
-          "to": numeroDestino,
+          "t✓: numeroDestino,
           "type": "template",
           "template": { 
             "name": "asistencia", 
@@ -183,7 +183,7 @@ function doPost(e) {
 
     return jsonResponse({
       success: true,
-      message: estado === 'Asistió' ? 'Asistencia registrada correctamente' : 'Se registró una TARDANZA',
+      message: estado === 'Asistióó' ? 'Asistencia registrada correctamente' : 'Se registró una TARDANZA',
       estudiante,
       asistencia: { fecha, hora, estado },
       whatsapp: whatsappEnviado
@@ -244,13 +244,13 @@ function calcularEstado(fechaHora, nivel) {
   const minutosDelDia = fechaHora.getHours() * 60 + fechaHora.getMinutes();
   
   if (String(nivel).toLowerCase().includes('primaria')) {
-    if (minutosDelDia <= 495) return 'Asistió';
+    if (minutosDelDia <= 495) return 'Asistióó';
     if (minutosDelDia <= 600) return 'Tardanza';
     return 'Falta';
   }
   
   if (String(nivel).toLowerCase().includes('secundaria')) {
-    if (minutosDelDia <= 855) return 'Asistió';
+    if (minutosDelDia <= 855) return 'Asistióó';
     if (minutosDelDia <= 960) return 'Tardanza';
     return 'Falta';
   }
@@ -299,7 +299,7 @@ function obtenerHistorialPadre(dni, estudiante) {
           estado: estado
         });
 
-        if (estado.includes('Asisti')) asistencias++;
+        if (estado.includes('Asistió')) asistencias++;
         else if (estado === 'Tardanza') tardanzas++;
         else if (estado === 'Falta') faltas++;
       }
@@ -401,7 +401,7 @@ function obtenerDashboard(meses) {
       if (!registrosPorFecha[fechaStr]) registrosPorFecha[fechaStr] = new Set();
       registrosPorFecha[fechaStr].add(dni);
       
-      if (estado === 'Asistió') asistencias++;
+      if (estado === 'Asistióó') asistencias++;
       if (estado === 'Tardanza') tardanzas++;
       if (estado === 'Falta') faltas++; 
       if (estado === 'Justificado') justificados++;
@@ -539,7 +539,6 @@ function updateNonWorkingDay(dateString, isNonWorking) {
   const datos = ultFilaC > 0 && ultColC > 0 ? hojaCalendario.getRange(1, 1, ultFilaC, ultColC).getValues() : [];
   const tz = Session.getScriptTimeZone() || 'America/Lima';
   
-  // CORRECCIÓN 2: Comparamos las fechas en formato texto 'yyyy-MM-dd' para evitar fallos de zona horaria
   for (let i = 1; i < datos.length; i++) {
     const fechaCelda = datos[i][0];
     if (fechaCelda instanceof Date && !isNaN(fechaCelda)) {
@@ -593,20 +592,19 @@ function registrarInasistencias() {
   const todosLosAlumnos = actualizarCacheEstudiantes();
   const dnisAlumnos = Object.keys(todosLosAlumnos);
   
-  const dnisAsistieron = [];
+  const dnisAsistióeron = [];
   dnisAlumnos.forEach(dni => {
     const propertyKey = `asistencia_${dni}_${fechaKey}`;
     if (SCRIPT_PROPERTIES.getProperty(propertyKey)) {
-      dnisAsistieron.push(dni);
+      dnisAsistióeron.push(dni);
     }
   });
 
-  const dnisFaltaron = dnisAlumnos.filter(dni => !dnisAsistieron.includes(dni));
+  const dnisFaltaron = dnisAlumnos.filter(dni => !dnisAsistióeron.includes(dni));
   const hojaRegistro = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(HOJA_REGISTRO);
   const nuevasFilas = [];
 
   dnisFaltaron.forEach(dni => {
-    // CORRECCIÓN 3: Evitar registrar la falta dos veces si el script se ejecuta de nuevo hoy
     const faltaKey = `falta_${dni}_${fechaKey}`;
     if (!SCRIPT_PROPERTIES.getProperty(faltaKey)) {
       const alumno = todosLosAlumnos[dni];

@@ -33,7 +33,7 @@ const ConsultaPadres = () => {
 
   return (
     <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8 font-sans">
-      <div className="max-w-2xl mx-auto">
+      <div className="max-w-2xl mx-aut✓>
         <div className="text-center mb-8">
           <h2 className="text-3xl font-extrabold text-gray-900 mb-2">Portal de Padres</h2>
           <p className="text-gray-600">Consulta el historial de asistencia de tu hijo/a ingresando su DNI.</p>
@@ -104,7 +104,7 @@ const ConsultaPadres = () => {
                 <div className="space-y-3">
                   {data.historial.map((registro, idx) => {
                     let badgeColor = 'bg-gray-100 text-gray-800';
-                    if (registro.estado.includes('Asisti')) badgeColor = 'bg-green-100 text-green-800';
+                    if (registro.estado.includes('Asistió')) badgeColor = 'bg-green-100 text-green-800';
                     else if (registro.estado === 'Tardanza') badgeColor = 'bg-yellow-100 text-yellow-800';
                     else if (registro.estado === 'Falta') badgeColor = 'bg-red-100 text-red-800';
 

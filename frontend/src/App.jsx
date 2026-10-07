@@ -1,4 +1,4 @@
-import {useState} from 'react';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import Header from './components/Header';
 import Footer from './components/Footer';
 import Scanner from './pages/Scanner';
@@ -7,34 +7,35 @@ import Generator from './pages/Generator';
 import Justificaciones from './pages/Justificaciones';
 import ConsultaPadres from './pages/ConsultaPadres';
 
-export default function App() {
-  const [view, setView] = useState(() => {
-    // Si entran directo al enlace /padres, renderizamos la vista de padres
-    if (window.location.pathname.includes('/padres')) {
-      return 'consulta_padres';
-    }
-    return 'scanner';
-  });
-
-  // Si es la vista de padres, ocultamos el Header y Footer administrativo
-  if (view === 'consulta_padres') {
-    return (
-      <div className="flex min-h-screen flex-col">
-        <ConsultaPadres />
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex min-h-screen flex-col">
-      <Header view={view} setView={setView}/>
-      <div className="flex-1">
-        {view === 'scanner' ? <Scanner/> :
-         view === 'dashboard' ? <Dashboard/> :
-         view === 'justificaciones' ? <Justificaciones/> :
-         <Generator/>}
-      </div>
-      <Footer view={view} setView={setView}/>
+// Layout para el área administrativa (con Header y Footer)
+const AdminLayout = ({ children }) => (
+  <>
+    <Header />
+    <div className="flex-1">
+      {children}
     </div>
+    <Footer />
+  </>
+);
+
+export default function App() {
+  return (
+    <BrowserRouter>
+      <div className="flex min-h-screen flex-col">
+        <Routes>
+          {/* Ruta pública para padres (sin Header ni Footer) */}
+          <Route path="/padres" element={<ConsultaPadres />} />
+          
+          {/* Rutas administrativas */}
+          <Route path="/" element={<AdminLayout><Scanner /></AdminLayout>} />
+          <Route path="/dashboard" element={<AdminLayout><Dashboard /></AdminLayout>} />
+          <Route path="/justificaciones" element={<AdminLayout><Justificaciones /></AdminLayout>} />
+          <Route path="/generador" element={<AdminLayout><Generator /></AdminLayout>} />
+          
+          {/* Redirección por defecto */}
+          <Route path="*" element={<AdminLayout><Scanner /></AdminLayout>} />
+        </Routes>
+      </div>
+    </BrowserRouter>
   );
 }
