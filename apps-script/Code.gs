@@ -137,7 +137,7 @@ function doPost(e) {
         const celularLimpio = String(estudiante.celular).replace(/\D/g, ''); const numeroDestino = celularLimpio.startsWith('51') ? celularLimpio : '51' + celularLimpio;
         const payload = {
           "messaging_product": "whatsapp",
-          "t✓: numeroDestino,
+          "to": numeroDestino,
           "type": "template",
           "template": { 
             "name": "asistencia", 
