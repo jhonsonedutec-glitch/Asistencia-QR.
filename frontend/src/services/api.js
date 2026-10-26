@@ -26,3 +26,16 @@ export const justificarFalta = (dni, fecha, motivo) => request(GAS_URL, {
 export const obtenerEstudiantes = () => request(`${GAS_URL}?action=estudiantes`);
 
 export const obtenerHistorialPadre = dni => request(`${GAS_URL}?action=consulta_padre&dni=${dni}`);
+
+// --- Registro Manual ---
+export const obtenerGrados = () => request(`${GAS_URL}?action=grados_disponibles`);
+
+export const obtenerEstudiantesPorGrado = grado => request(`${GAS_URL}?action=estudiantes_por_grado&grado=${encodeURIComponent(grado)}`);
+
+export const obtenerAsistenciaDia = fecha => request(`${GAS_URL}?action=asistencia_dia&fecha=${encodeURIComponent(fecha)}`);
+
+export const registrarManualLote = (registros, fecha) => request(GAS_URL, {
+  method: 'POST',
+  headers: { 'Content-Type': 'text/plain' },
+  body: JSON.stringify({ action: 'registrar_manual_lote', registros, fecha })
+});

@@ -59,6 +59,22 @@ function doGet(e) {
       return jsonResponse(obtenerEstudiantes());
     }
 
+    if (action === 'estudiantes_por_grado') {
+      const grado = String(e.parameter.grado || '').trim();
+      if (!grado) return jsonResponse({ success: false, message: 'Debe indicar un grado.' });
+      return jsonResponse(obtenerEstudiantesPorGrado(grado));
+    }
+
+    if (action === 'asistencia_dia') {
+      const fecha = String(e.parameter.fecha || '').trim();
+      if (!fecha) return jsonResponse({ success: false, message: 'Debe indicar una fecha.' });
+      return jsonResponse(obtenerAsistenciaDia(fecha));
+    }
+
+    if (action === 'grados_disponibles') {
+      return jsonResponse(obtenerGradosDisponibles());
+    }
+
     return jsonResponse({ success: false, message: 'Acción no válida' });
 
   } catch (error) {
@@ -90,6 +106,10 @@ function doPost(e) {
         message: 'Permiso/Justificación registrada correctamente',
         estudiante
       });
+    }
+
+    if (action === 'registrar_manual_lote') {
+      return jsonResponse(registrarManualLote(data));
     }
 
     if (action !== 'registrar') {
@@ -482,6 +502,157 @@ function convertirFecha(fechaStr) {
 function jsonResponse(data) {
   return ContentService.createTextOutput(JSON.stringify(data))
     .setMimeType(ContentService.MimeType.JSON);
+}
+
+
+// =================================================================================
+// REGISTRO MANUAL DE ASISTENCIA
+// =================================================================================
+
+function obtenerGradosDisponibles() {
+  const estudiantes = actualizarCacheEstudiantes();
+  const gradosSet = new Set();
+  for (const dni in estudiantes) {
+    const grado = String(estudiantes[dni].grado || '').trim();
+    if (grado) gradosSet.add(grado);
+  }
+  const grados = Array.from(gradosSet).sort();
+  return { success: true, grados: grados };
+}
+
+function obtenerEstudiantesPorGrado(grado) {
+  const estudiantes = actualizarCacheEstudiantes();
+  const lista = [];
+  for (const dni in estudiantes) {
+    if (String(estudiantes[dni].grado).trim() === grado) {
+      lista.push(estudiantes[dni]);
+    }
+  }
+  lista.sort((a, b) => a.nombre.localeCompare(b.nombre));
+  return { success: true, estudiantes: lista };
+}
+
+function obtenerAsistenciaDia(fechaStr) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const hojaR = ss.getSheetByName(HOJA_REGISTRO);
+  const ultFilaR = hojaR.getLastRow();
+  const ultColR = hojaR.getLastColumn();
+  if (ultFilaR <= 1) return { success: true, registrados: {} };
+
+  const datos = hojaR.getRange(2, 1, ultFilaR - 1, ultColR).getValues();
+  const headers = hojaR.getRange(1, 1, 1, ultColR).getValues()[0].map(h => String(h).trim().toLowerCase());
+  const cFecha = headers.indexOf('fecha');
+  const cHora = headers.indexOf('hora');
+  const cDNI = headers.indexOf('dni');
+  const cEstado = headers.indexOf('estado');
+  const tz = Session.getScriptTimeZone() || 'America/Lima';
+
+  const registrados = {};
+  for (let i = 0; i < datos.length; i++) {
+    const fechaCelda = datos[i][cFecha];
+    let fechaFormateada = '';
+    if (fechaCelda instanceof Date) {
+      fechaFormateada = Utilities.formatDate(fechaCelda, tz, 'dd/MM/yyyy');
+    } else {
+      fechaFormateada = String(fechaCelda).trim();
+    }
+
+    if (fechaFormateada === fechaStr) {
+      const dni = String(datos[i][cDNI]).trim();
+      let hora = '';
+      if (datos[i][cHora] instanceof Date) {
+        hora = Utilities.formatDate(datos[i][cHora], tz, 'HH:mm:ss');
+      } else {
+        hora = String(datos[i][cHora] || '').trim();
+      }
+      registrados[dni] = {
+        estado: String(datos[i][cEstado] || '').trim(),
+        hora: hora,
+        fila: i + 2 // fila real en la hoja (1-indexed + header)
+      };
+    }
+  }
+  return { success: true, registrados: registrados };
+}
+
+function registrarManualLote(data) {
+  const registros = data.registros || [];
+  const fechaStr = String(data.fecha || '').trim();
+
+  if (!fechaStr) return { success: false, message: 'Debe indicar una fecha.' };
+  if (!registros.length) return { success: false, message: 'No hay registros para guardar.' };
+
+  const estadosValidos = ['Asistió', 'Tardanza', 'Falta'];
+  const SCRIPT_PROPERTIES = PropertiesService.getScriptProperties();
+  const tz = Session.getScriptTimeZone() || 'America/Lima';
+
+  // Convertir fecha dd/MM/yyyy a yyyy-MM-dd para la property key
+  const partes = fechaStr.split('/');
+  const fechaKey = partes.length === 3 ? `${partes[2]}-${partes[1]}-${partes[0]}` : fechaStr;
+
+  const todosLosAlumnos = actualizarCacheEstudiantes();
+
+  // Obtener registros existentes del dia para detectar duplicados
+  const existentes = obtenerAsistenciaDia(fechaStr);
+  const registradosMap = existentes.registrados || {};
+
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const hojaRegistro = ss.getSheetByName(HOJA_REGISTRO);
+  const nuevasFilas = [];
+  let actualizados = 0;
+  let nuevos = 0;
+  const errores = [];
+
+  for (const reg of registros) {
+    const dni = String(reg.dni || '').trim();
+    const estado = String(reg.estado || '').trim();
+
+    if (!dni || !estado) {
+      errores.push('Registro incompleto: falta DNI o estado.');
+      continue;
+    }
+
+    if (!estadosValidos.includes(estado)) {
+      errores.push(`Estado inválido para DNI ${dni}: "${estado}"`);
+      continue;
+    }
+
+    const alumno = todosLosAlumnos[dni];
+    if (!alumno) {
+      errores.push(`DNI ${dni} no encontrado en BD_Estudiantes.`);
+      continue;
+    }
+
+    // Si ya existe un registro para este DNI en este dia, actualizamos
+    if (registradosMap[dni]) {
+      const filaExistente = registradosMap[dni].fila;
+      hojaRegistro.getRange(filaExistente, 5).setValue(estado); // Columna Estado (E)
+      actualizados++;
+    } else {
+      // Nuevo registro manual
+      nuevasFilas.push([fechaStr, 'Manual', dni, alumno.nombre, estado]);
+      nuevos++;
+    }
+
+    // Actualizar property para que registrarInasistencias() no lo marque como falta
+    const propertyKey = `asistencia_${dni}_${fechaKey}`;
+    SCRIPT_PROPERTIES.setProperty(propertyKey, 'registrado');
+  }
+
+  // Escribir todas las filas nuevas de una vez (rendimiento)
+  if (nuevasFilas.length > 0) {
+    hojaRegistro.getRange(hojaRegistro.getLastRow() + 1, 1, nuevasFilas.length, nuevasFilas[0].length).setValues(nuevasFilas);
+  }
+
+  SpreadsheetApp.flush();
+
+  return {
+    success: true,
+    message: `Registro manual completado: ${nuevos} nuevos, ${actualizados} actualizados.`,
+    nuevos: nuevos,
+    actualizados: actualizados,
+    errores: errores
+  };
 }
 
 // =================================================================================

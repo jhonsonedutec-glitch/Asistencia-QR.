@@ -31,6 +31,16 @@ export default function Header() {
             Dashboard
           </NavLink>
           <NavLink
+            to="/registro-manual"
+            className={({ isActive }) =>
+              `rounded-xl px-4 py-2 text-sm font-semibold ${
+                isActive ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-blue-900/50'
+              }`
+            }
+          >
+            Registro Manual
+          </NavLink>
+          <NavLink
             to="/justificaciones"
             className={({ isActive }) =>
               `rounded-xl px-4 py-2 text-sm font-semibold ${

@@ -6,6 +6,7 @@ import Dashboard from './pages/Dashboard';
 import Generator from './pages/Generator';
 import Justificaciones from './pages/Justificaciones';
 import ConsultaPadres from './pages/ConsultaPadres';
+import RegistroManual from './pages/RegistroManual';
 
 // Layout para el área administrativa (con Header y Footer)
 const AdminLayout = ({ children }) => (
@@ -29,6 +30,7 @@ export default function App() {
           {/* Rutas administrativas */}
           <Route path="/" element={<AdminLayout><Scanner /></AdminLayout>} />
           <Route path="/dashboard" element={<AdminLayout><Dashboard /></AdminLayout>} />
+          <Route path="/registro-manual" element={<AdminLayout><RegistroManual /></AdminLayout>} />
           <Route path="/justificaciones" element={<AdminLayout><Justificaciones /></AdminLayout>} />
           <Route path="/generador" element={<AdminLayout><Generator /></AdminLayout>} />
           

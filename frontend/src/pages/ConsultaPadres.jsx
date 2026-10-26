@@ -33,7 +33,7 @@ const ConsultaPadres = () => {
 
   return (
     <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8 font-sans">
-      <div className="max-w-2xl mx-aut✓>
+      <div className="max-w-2xl mx-auto">
         <div className="text-center mb-8">
           <h2 className="text-3xl font-extrabold text-gray-900 mb-2">Portal de Padres</h2>
           <p className="text-gray-600">Consulta el historial de asistencia de tu hijo/a ingresando su DNI.</p>
