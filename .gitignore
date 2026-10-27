@@ -96,7 +96,7 @@ dist
 
 # Gatsby build output
 .cache/
-public
+# public
 
 # Mac files
 .DS_Store

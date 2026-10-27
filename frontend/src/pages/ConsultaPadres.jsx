@@ -31,10 +31,21 @@ const ConsultaPadres = () => {
     }
   };
 
+  const asistencias = data?.estadisticas?.asistencias ?? data?.historial?.filter(r => r.estado && r.estado.includes('Asisti')).length ?? 0;
+  const tardanzas = data?.estadisticas?.tardanzas ?? data?.historial?.filter(r => r.estado === 'Tardanza').length ?? 0;
+  const faltas = data?.estadisticas?.faltas ?? data?.historial?.filter(r => r.estado === 'Falta').length ?? 0;
+  const justificados = data?.estadisticas?.justificados ?? data?.historial?.filter(r => r.estado === 'Justificado').length ?? 0;
+
   return (
     <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8 font-sans">
       <div className="max-w-2xl mx-auto">
+        {/* Header con icono institucional */}
         <div className="text-center mb-8">
+          <img 
+            src="/app-icon.png" 
+            alt="Logo IEP Millenium" 
+            className="w-24 h-24 mx-auto mb-4 rounded-3xl shadow-lg border-2 border-white object-cover"
+          />
           <h2 className="text-3xl font-extrabold text-gray-900 mb-2">Portal de Padres</h2>
           <p className="text-gray-600">Consulta el historial de asistencia de tu hijo/a ingresando su DNI.</p>
         </div>
@@ -81,22 +92,27 @@ const ConsultaPadres = () => {
             </div>
 
             <div className="p-6">
-              <div className="grid grid-cols-3 gap-4 mb-8">
-                <div className="bg-green-50 p-4 rounded-lg border border-green-100 text-center">
-                  <div className="text-sm text-green-600 font-semibold mb-1">Asistencias</div>
-                  <div className="text-3xl font-bold text-green-700">{data.estadisticas?.asistencias || 0}</div>
+              {/* Tarjetas de estadísticas (4 estados incluyendo Justificados) */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-8">
+                <div className="bg-green-50 p-4 rounded-xl border border-green-100 text-center">
+                  <div className="text-xs text-green-600 font-bold uppercase tracking-wider mb-1">Asistencias</div>
+                  <div className="text-3xl font-extrabold text-green-700">{asistencias}</div>
                 </div>
-                <div className="bg-yellow-50 p-4 rounded-lg border border-yellow-100 text-center">
-                  <div className="text-sm text-yellow-600 font-semibold mb-1">Tardanzas</div>
-                  <div className="text-3xl font-bold text-yellow-700">{data.estadisticas?.tardanzas || 0}</div>
+                <div className="bg-yellow-50 p-4 rounded-xl border border-yellow-100 text-center">
+                  <div className="text-xs text-yellow-600 font-bold uppercase tracking-wider mb-1">Tardanzas</div>
+                  <div className="text-3xl font-extrabold text-yellow-700">{tardanzas}</div>
                 </div>
-                <div className="bg-red-50 p-4 rounded-lg border border-red-100 text-center">
-                  <div className="text-sm text-red-600 font-semibold mb-1">Faltas</div>
-                  <div className="text-3xl font-bold text-red-700">{data.estadisticas?.faltas || 0}</div>
+                <div className="bg-red-50 p-4 rounded-xl border border-red-100 text-center">
+                  <div className="text-xs text-red-600 font-bold uppercase tracking-wider mb-1">Faltas</div>
+                  <div className="text-3xl font-extrabold text-red-700">{faltas}</div>
+                </div>
+                <div className="bg-purple-50 p-4 rounded-xl border border-purple-100 text-center">
+                  <div className="text-xs text-purple-600 font-bold uppercase tracking-wider mb-1">Justificadas</div>
+                  <div className="text-3xl font-extrabold text-purple-700">{justificados}</div>
                 </div>
               </div>
 
-              <h4 className="font-bold text-gray-800 mb-4 border-b pb-2">Últimos Registros</h4>
+              <h4 className="font-bold text-gray-800 mb-4 border-b pb-2">Historial de Registros</h4>
               
               {(!data.historial || data.historial.length === 0) ? (
                 <p className="text-gray-500 text-center py-4">No hay registros de asistencia disponibles.</p>
@@ -104,17 +120,21 @@ const ConsultaPadres = () => {
                 <div className="space-y-3">
                   {data.historial.map((registro, idx) => {
                     let badgeColor = 'bg-gray-100 text-gray-800';
-                    if (registro.estado.includes('Asistió')) badgeColor = 'bg-green-100 text-green-800';
-                    else if (registro.estado === 'Tardanza') badgeColor = 'bg-yellow-100 text-yellow-800';
-                    else if (registro.estado === 'Falta') badgeColor = 'bg-red-100 text-red-800';
+                    if (registro.estado.includes('Asisti')) badgeColor = 'bg-green-100 text-green-800 border border-green-200';
+                    else if (registro.estado === 'Tardanza') badgeColor = 'bg-yellow-100 text-yellow-800 border border-yellow-200';
+                    else if (registro.estado === 'Falta') badgeColor = 'bg-red-100 text-red-800 border border-red-200';
+                    else if (registro.estado === 'Justificado') badgeColor = 'bg-purple-100 text-purple-800 border border-purple-200';
 
                     return (
                       <div key={idx} className="flex justify-between items-center p-4 hover:bg-gray-50 border border-gray-100 rounded-lg transition-colors">
                         <div className="flex flex-col">
                           <span className="font-medium text-gray-900">{registro.fecha}</span>
                           <span className="text-sm text-gray-500">{registro.hora || '--:--'}</span>
+                          {registro.motivo && (
+                            <span className="text-xs text-purple-700 mt-1 italic">Motivo: {registro.motivo}</span>
+                          )}
                         </div>
-                        <span className={`px-3 py-1 rounded-full text-sm font-medium ${badgeColor}`}>
+                        <span className={`px-3 py-1 rounded-full text-sm font-semibold ${badgeColor}`}>
                           {registro.estado}
                         </span>
                       </div>

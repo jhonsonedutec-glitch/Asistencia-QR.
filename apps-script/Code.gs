@@ -279,6 +279,23 @@ function calcularEstado(fechaHora, nivel) {
 
 function obtenerHistorialPadre(dni, estudiante) {
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const tz = Session.getScriptTimeZone() || 'America/Lima';
+
+  // Leer justificaciones registradas
+  const hojaJ = ss.getSheetByName(HOJA_JUSTIFICACIONES);
+  const ultFilaJ = hojaJ ? hojaJ.getLastRow() : 0;
+  const ultColJ = hojaJ ? hojaJ.getLastColumn() : 0;
+  const datosJ = ultFilaJ > 1 ? hojaJ.getRange(2, 1, ultFilaJ - 1, ultColJ).getValues() : [];
+  const mapJ = {};
+  for (let j = 0; j < datosJ.length; j++) {
+    const fCelda = datosJ[j][0];
+    const fDate = fCelda instanceof Date ? Utilities.formatDate(fCelda, tz, 'dd/MM/yyyy') : String(fCelda || '').trim();
+    const d = String(datosJ[j][1] || '').trim();
+    if (d === dni) {
+      mapJ[fDate] = String(datosJ[j][2] || 'Permiso justificado').trim();
+    }
+  }
+
   const hojaRegistro = ss.getSheetByName(HOJA_REGISTRO);
   const ultFilaR = hojaRegistro.getLastRow();
   const ultColR = hojaRegistro.getLastColumn();
@@ -294,17 +311,24 @@ function obtenerHistorialPadre(dni, estudiante) {
   let faltas = 0;
   let tardanzas = 0;
   let asistencias = 0;
+  let justificados = 0;
 
   if (cDNI !== -1) {
     for (let i = 0; i < registrosDatos.length; i++) {
       const fila = registrosDatos[i];
       if (String(fila[cDNI]).trim() === dni) {
-        const estado = String(fila[cEstado] || '').trim();
+        let estado = String(fila[cEstado] || '').trim();
         const fecha = String(fila[cFecha] || '').trim();
-        
+        let motivo = '';
+
+        if (mapJ[fecha]) {
+          estado = 'Justificado';
+          motivo = mapJ[fecha];
+        }
+
         let hora = '';
         if (fila[cHora] instanceof Date) {
-          hora = Utilities.formatDate(fila[cHora], Session.getScriptTimeZone() || 'America/Lima', 'HH:mm:ss');
+          hora = Utilities.formatDate(fila[cHora], tz, 'HH:mm:ss');
         } else {
           hora = String(fila[cHora] || '').trim();
           if (hora.includes('1899')) {
@@ -312,21 +336,23 @@ function obtenerHistorialPadre(dni, estudiante) {
              if (match) hora = match[0];
           }
         }
-        
+
         historial.push({
           fecha: fecha,
           hora: hora,
-          estado: estado
+          estado: estado,
+          motivo: motivo
         });
 
-        if (estado.includes('Asistió')) asistencias++;
+        if (estado === 'Justificado') justificados++;
+        else if (estado.includes('Asisti') || estado.includes('Asistió')) asistencias++;
         else if (estado === 'Tardanza') tardanzas++;
         else if (estado === 'Falta') faltas++;
       }
     }
   }
 
-  // Ordenar el historial por fecha (de más reciente a más antiguo, asumiendo formato dd/MM/yyyy)
+  // Ordenar el historial por fecha (de más reciente a más antiguo)
   historial.sort((a, b) => {
     const [d1, m1, y1] = a.fecha.split('/');
     const [d2, m2, y2] = b.fecha.split('/');
@@ -341,7 +367,8 @@ function obtenerHistorialPadre(dni, estudiante) {
     estadisticas: {
       asistencias: asistencias,
       tardanzas: tardanzas,
-      faltas: faltas
+      faltas: faltas,
+      justificados: justificados
     },
     historial: historial
   };
