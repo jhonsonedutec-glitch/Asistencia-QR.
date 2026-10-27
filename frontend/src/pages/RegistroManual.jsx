@@ -51,8 +51,12 @@ export default function RegistroManual() {
       ]);
 
       if (estRes.success && Array.isArray(estRes.estudiantes)) {
-        // Filtrar registros que no sean alumnos válidos (ej. Pendiente)
-        setEstudiantes(estRes.estudiantes.filter(e => e.dni && /^\d{8}$/.test(e.dni)));
+        // Incluir a todos los alumnos que tengan nombre registrado
+        setEstudiantes(estRes.estudiantes.filter(e => e.nombre && e.nombre.trim()).map((e, idx) => ({
+          ...e,
+          dni: e.dni && e.dni !== 'Pendiente' ? e.dni : `PEND-${idx + 1}`,
+          dniOriginal: e.dni || 'Sin DNI'
+        })));
       }
       if (dashRes.success) {
         setDashboardData(dashRes);
@@ -447,7 +451,15 @@ export default function RegistroManual() {
                       }`}
                     >
                       <td className="px-4 py-3 text-xs text-slate-500">{idx + 1}</td>
-                      <td className="px-4 py-3 font-mono text-xs text-slate-300 font-semibold">{item.dni}</td>
+                      <td className="px-4 py-3 font-mono text-xs text-slate-300 font-semibold">
+                        {item.dniOriginal && item.dniOriginal !== item.dni ? (
+                          <span className="text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
+                            {item.dniOriginal}
+                          </span>
+                        ) : (
+                          item.dni
+                        )}
+                      </td>
                       <td className="px-4 py-3">
                         <div className="font-bold text-white">{item.nombre}</div>
                         {item.hora && item.hora !== '--:--' && (
