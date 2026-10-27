@@ -123,7 +123,7 @@ function doPost(e) {
     const hoy = new Date();
     const tz = Session.getScriptTimeZone() || 'America/Lima';
     const fechaKey = Utilities.formatDate(hoy, tz, 'yyyy-MM-dd');
-    const propertyKey = `asistencia_${dni}_${fechaKey}`;
+    const propertyKey = 'asistencia_' + dni + '_' + fechaKey;
 
     if (SCRIPT_PROPERTIES.getProperty(propertyKey)) {
       return jsonResponse({
@@ -153,7 +153,7 @@ function doPost(e) {
     let whatsappEnviado = false;
     if (estudiante.celular && META_API_TOKEN !== 'PEGA_AQUI_TU_TOKEN_DE_ACCESO_TEMPORAL') {
       try {
-        const url = `https://graph.facebook.com/v25.0/${META_PHONE_ID}/messages`;
+        const url = 'https://graph.facebook.com/v25.0/' + META_PHONE_ID + '/messages';
         const celularLimpio = String(estudiante.celular).replace(/\D/g, ''); const numeroDestino = celularLimpio.startsWith('51') ? celularLimpio : '51' + celularLimpio;
         const payload = {
           "messaging_product": "whatsapp",
@@ -203,7 +203,7 @@ function doPost(e) {
 
     return jsonResponse({
       success: true,
-      message: estado === 'Asistióó' ? 'Asistencia registrada correctamente' : 'Se registró una TARDANZA',
+      message: estado === 'Asistio' ? 'Asistencia registrada correctamente' : 'Se registró una TARDANZA',
       estudiante,
       asistencia: { fecha, hora, estado },
       whatsapp: whatsappEnviado
@@ -264,13 +264,13 @@ function calcularEstado(fechaHora, nivel) {
   const minutosDelDia = fechaHora.getHours() * 60 + fechaHora.getMinutes();
   
   if (String(nivel).toLowerCase().includes('primaria')) {
-    if (minutosDelDia <= 495) return 'Asistióó';
+    if (minutosDelDia <= 495) return 'Asistio';
     if (minutosDelDia <= 600) return 'Tardanza';
     return 'Falta';
   }
   
   if (String(nivel).toLowerCase().includes('secundaria')) {
-    if (minutosDelDia <= 855) return 'Asistióó';
+    if (minutosDelDia <= 855) return 'Asistio';
     if (minutosDelDia <= 960) return 'Tardanza';
     return 'Falta';
   }
@@ -394,7 +394,7 @@ function obtenerDashboard(meses) {
     if (!datosJustificaciones[i][0]) continue;
     const fDate = datosJustificaciones[i][0] instanceof Date ? Utilities.formatDate(datosJustificaciones[i][0], Session.getScriptTimeZone(), 'dd/MM/yyyy') : String(datosJustificaciones[i][0]);
     const d = String(datosJustificaciones[i][1]).trim();
-    mapJustificaciones[`${fDate}_${d}`] = datosJustificaciones[i][2];
+    mapJustificaciones[fDate + '_' + d] = datosJustificaciones[i][2];
   }
 
   for (let i = 1; i < datos.length; i++) {
@@ -421,7 +421,7 @@ function obtenerDashboard(meses) {
       if (!registrosPorFecha[fechaStr]) registrosPorFecha[fechaStr] = new Set();
       registrosPorFecha[fechaStr].add(dni);
       
-      if (estado === 'Asistióó') asistencias++;
+      if (estado === 'Asistio') asistencias++;
       if (estado === 'Tardanza') tardanzas++;
       if (estado === 'Falta') faltas++; 
       if (estado === 'Justificado') justificados++;
@@ -433,7 +433,7 @@ function obtenerDashboard(meses) {
     const timestamp = convertirFecha(fechaStr).getTime();
     for (const est of estudiantesTotales) {
       if (!dnisRegistrados.has(est.dni)) {
-        const key = `${fechaStr}_${est.dni}`;
+        const key = fechaStr + '_' + est.dni;
         if (mapJustificaciones[key]) {
            registros.push({
             fecha: fechaStr,
@@ -588,7 +588,7 @@ function registrarManualLote(data) {
 
   // Convertir fecha dd/MM/yyyy a yyyy-MM-dd para la property key
   const partes = fechaStr.split('/');
-  const fechaKey = partes.length === 3 ? `${partes[2]}-${partes[1]}-${partes[0]}` : fechaStr;
+  const fechaKey = partes.length === 3 ? partes[2] + '-' + partes[1] + '-' + partes[0] : fechaStr;
 
   const todosLosAlumnos = actualizarCacheEstudiantes();
 
@@ -613,13 +613,13 @@ function registrarManualLote(data) {
     }
 
     if (!estadosValidos.includes(estado)) {
-      errores.push(`Estado inválido para DNI ${dni}: "${estado}"`);
+      errores.push('Estado invalido para DNI ' + dni + ': ' + estado);
       continue;
     }
 
     const alumno = todosLosAlumnos[dni];
     if (!alumno) {
-      errores.push(`DNI ${dni} no encontrado en BD_Estudiantes.`);
+      errores.push('DNI ' + dni + ' no encontrado en BD_Estudiantes.');
       continue;
     }
 
@@ -635,7 +635,7 @@ function registrarManualLote(data) {
     }
 
     // Actualizar property para que registrarInasistencias() no lo marque como falta
-    const propertyKey = `asistencia_${dni}_${fechaKey}`;
+    const propertyKey = 'asistencia_' + dni + '_' + fechaKey;
     SCRIPT_PROPERTIES.setProperty(propertyKey, 'registrado');
   }
 
@@ -648,7 +648,7 @@ function registrarManualLote(data) {
 
   return {
     success: true,
-    message: `Registro manual completado: ${nuevos} nuevos, ${actualizados} actualizados.`,
+    message: 'Registro manual completado: ' + nuevos + ' nuevos, ' + actualizados + ' actualizados.',
     nuevos: nuevos,
     actualizados: actualizados,
     errores: errores
@@ -751,7 +751,7 @@ function registrarInasistencias() {
         if (fechaCeldaStr === fechaHoyStr) {
           const esLaborable = String(calendarioDatos[i][1]).toUpperCase();
           if (esLaborable === 'NO') {
-            console.log(`Hoy (${fechaHoyStr}) es un día no laborable. No se registrarán faltas.`);
+            console.log('Hoy (' + fechaHoyStr + ') es un dia no laborable. No se registraran faltas.');
             return; 
           }
           break; 
@@ -763,20 +763,20 @@ function registrarInasistencias() {
   const todosLosAlumnos = actualizarCacheEstudiantes();
   const dnisAlumnos = Object.keys(todosLosAlumnos);
   
-  const dnisAsistióeron = [];
+  const dnisAsistieron = [];
   dnisAlumnos.forEach(dni => {
-    const propertyKey = `asistencia_${dni}_${fechaKey}`;
+    const propertyKey = 'asistencia_' + dni + '_' + fechaKey;
     if (SCRIPT_PROPERTIES.getProperty(propertyKey)) {
-      dnisAsistióeron.push(dni);
+      dnisAsistieron.push(dni);
     }
   });
 
-  const dnisFaltaron = dnisAlumnos.filter(dni => !dnisAsistióeron.includes(dni));
+  const dnisFaltaron = dnisAlumnos.filter(dni => !dnisAsistieron.includes(dni));
   const hojaRegistro = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(HOJA_REGISTRO);
   const nuevasFilas = [];
 
   dnisFaltaron.forEach(dni => {
-    const faltaKey = `falta_${dni}_${fechaKey}`;
+    const faltaKey = 'falta_' + dni + '_' + fechaKey;
     if (!SCRIPT_PROPERTIES.getProperty(faltaKey)) {
       const alumno = todosLosAlumnos[dni];
       if (alumno) {
@@ -791,5 +791,5 @@ function registrarInasistencias() {
     SpreadsheetApp.flush();
   }
   
-  console.log(`Proceso de inasistencias completado. Se registraron ${nuevasFilas.length} faltas nuevas.`);
+  console.log('Proceso de inasistencias completado. Se registraron ' + nuevasFilas.length + ' faltas nuevas.');
 }
