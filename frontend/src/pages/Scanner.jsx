@@ -88,7 +88,7 @@ export default function Scanner() {
                     <span className="text-slate-600">•</span>
                     <span className="text-slate-400">{result.asistencia.hora}</span>
                     <span className="text-slate-600">•</span>
-                    <span className={`font-bold ${result.asistencia.estado === 'Asistióó' ? 'text-emerald-400' : result.asistencia.estado === 'Falta' ? 'text-red-400' : 'text-amber-400'}`}>
+                    <span className={`font-bold ${result.asistencia.estado && result.asistencia.estado.includes('Asisti') ? 'text-emerald-400' : result.asistencia.estado === 'Falta' ? 'text-red-400' : 'text-amber-400'}`}>
                       {result.asistencia.estado}
                     </span>
                   </div>

@@ -203,7 +203,7 @@ function doPost(e) {
 
     return jsonResponse({
       success: true,
-      message: estado === 'Asistio' ? 'Asistencia registrada correctamente' : 'Se registró una TARDANZA',
+      message: (estado === 'Asistio' || estado === 'Asistió') ? 'Asistencia registrada correctamente' : (estado === 'Tardanza' ? 'Se registró una TARDANZA' : 'Se registró como FALTA'),
       estudiante,
       asistencia: { fecha, hora, estado },
       whatsapp: whatsappEnviado
@@ -263,17 +263,28 @@ function buscarEstudiante(dni) {
 function calcularEstado(fechaHora, nivel) {
   const minutosDelDia = fechaHora.getHours() * 60 + fechaHora.getMinutes();
   
+  // NIVEL PRIMARIA
+  // Ingreso oficial: 7:30 AM
+  // Tolerancia 10 min: hasta las 7:40 AM (460 min) -> 'Asistió'
+  // Tardanza: de 7:41 AM hasta las 8:15 AM (495 min) -> 'Tardanza'
+  // Después de las 8:15 AM (> 495 min) -> 'Falta'
   if (String(nivel).toLowerCase().includes('primaria')) {
-    if (minutosDelDia <= 495) return 'Asistio';
-    if (minutosDelDia <= 600) return 'Tardanza';
+    if (minutosDelDia <= 460) return 'Asistió';
+    if (minutosDelDia <= 495) return 'Tardanza';
     return 'Falta';
   }
   
+  // NIVEL SECUNDARIA
+  // Ingreso oficial: 1:30 PM (13:30)
+  // Tolerancia 10 min: hasta las 1:40 PM / 13:40 (820 min) -> 'Asistió'
+  // Tardanza: de 1:41 PM hasta las 2:15 PM / 14:15 (855 min) -> 'Tardanza'
+  // Después de las 2:15 PM (> 855 min) -> 'Falta'
   if (String(nivel).toLowerCase().includes('secundaria')) {
-    if (minutosDelDia <= 855) return 'Asistio';
-    if (minutosDelDia <= 960) return 'Tardanza';
+    if (minutosDelDia <= 820) return 'Asistió';
+    if (minutosDelDia <= 855) return 'Tardanza';
     return 'Falta';
   }
+  
   return 'Falta';
 }
 
