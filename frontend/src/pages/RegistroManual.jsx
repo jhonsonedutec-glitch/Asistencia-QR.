@@ -50,14 +50,56 @@ export default function RegistroManual() {
         obtenerDashboard(1)
       ]);
 
+      let listaEst = [];
+      const nombresSet = new Set();
+      const dnisValidosSet = new Set();
+
+      const norm = (str) => String(str || '').toLowerCase().replace(/[,.\s]+/g, ' ').trim();
+
+      // 1. Tomar los estudiantes devueltos por el backend
       if (estRes.success && Array.isArray(estRes.estudiantes)) {
-        // Incluir a todos los alumnos que tengan nombre registrado
-        setEstudiantes(estRes.estudiantes.filter(e => e.nombre && e.nombre.trim()).map((e, idx) => ({
-          ...e,
-          dni: e.dni && e.dni !== 'Pendiente' ? e.dni : `PEND-${idx + 1}`,
-          dniOriginal: e.dni || 'Sin DNI'
-        })));
+        estRes.estudiantes.forEach((e, idx) => {
+          if (e.nombre && e.nombre.trim()) {
+            const nomNorm = norm(e.nombre);
+            nombresSet.add(nomNorm);
+            const dniValido = e.dni && /^\d{8}$/.test(String(e.dni).trim()) ? String(e.dni).trim() : null;
+            if (dniValido) dnisValidosSet.add(dniValido);
+
+            listaEst.push({
+              ...e,
+              dni: dniValido || `PEND-${idx + 1}`,
+              dniOriginal: dniValido || (e.dni || 'Pendiente')
+            });
+          }
+        });
       }
+
+      // 2. Si hay alumnos en el Dashboard que quedaron fuera por tener DNI "Pendiente" duplicado en Sheets, recuperarlos
+      if (dashRes.success && Array.isArray(dashRes.registros)) {
+        dashRes.registros.forEach(r => {
+          if (r.nombre && r.nombre.trim()) {
+            const nomNorm = norm(r.nombre);
+            const dniValido = r.dni && /^\d{8}$/.test(String(r.dni).trim()) ? String(r.dni).trim() : null;
+
+            if (dniValido && dnisValidosSet.has(dniValido)) return;
+            if (nombresSet.has(nomNorm)) return;
+
+            nombresSet.add(nomNorm);
+            if (dniValido) dnisValidosSet.add(dniValido);
+
+            listaEst.push({
+              nombre: r.nombre.trim(),
+              dni: dniValido || `PEND-${listaEst.length + 1}`,
+              dniOriginal: dniValido || (r.dni || 'Pendiente'),
+              grado: r.grado || '2do',
+              nivel: r.nivel || 'Secundaria',
+              celular: ''
+            });
+          }
+        });
+      }
+
+      setEstudiantes(listaEst);
       if (dashRes.success) {
         setDashboardData(dashRes);
       }
@@ -89,11 +131,20 @@ export default function RegistroManual() {
     const map = {};
     if (dashboardData && Array.isArray(dashboardData.registros)) {
       dashboardData.registros.forEach(r => {
-        if (r.fecha === fechaFormatted && r.dni) {
-          map[r.dni] = {
-            estado: r.estado,
-            hora: r.hora
-          };
+        if (r.fecha === fechaFormatted) {
+          if (r.dni && /^\d{8}$/.test(String(r.dni).trim())) {
+            map[String(r.dni).trim()] = {
+              estado: r.estado,
+              hora: r.hora
+            };
+          }
+          if (r.nombre) {
+            const nomKey = String(r.nombre).toLowerCase().replace(/[,.\s]+/g, ' ').trim();
+            map['nom_' + nomKey] = {
+              estado: r.estado,
+              hora: r.hora
+            };
+          }
         }
       });
     }
@@ -103,7 +154,8 @@ export default function RegistroManual() {
   // Lista combinada de estudiantes con su estado calculado
   const listaProcesada = useMemo(() => {
     return estudiantes.map(est => {
-      const registroExistente = estadosPorDni[est.dni];
+      const nomKey = String(est.nombre).toLowerCase().replace(/[,.\s]+/g, ' ').trim();
+      const registroExistente = estadosPorDni[est.dni] || estadosPorDni['nom_' + nomKey];
       const cambioLocal = cambios[est.dni];
 
       let estadoActual = 'Falta'; // Si no hay registro para el día, se considera Falta/Sin registrar
