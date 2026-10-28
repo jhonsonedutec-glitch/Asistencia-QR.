@@ -51,49 +51,17 @@ export default function RegistroManual() {
       ]);
 
       let listaEst = [];
-      const nombresSet = new Set();
-      const dnisValidosSet = new Set();
 
-      const norm = (str) => String(str || '').toLowerCase().replace(/[,.\s]+/g, ' ').trim();
-
-      // 1. Tomar los estudiantes devueltos por el backend
+      // 1. Tomar los estudiantes devueltos por el backend (BD_Estudiantes oficial)
       if (estRes.success && Array.isArray(estRes.estudiantes)) {
         estRes.estudiantes.forEach((e, idx) => {
           if (e.nombre && e.nombre.trim()) {
-            const nomNorm = norm(e.nombre);
-            nombresSet.add(nomNorm);
             const dniValido = e.dni && /^\d{8}$/.test(String(e.dni).trim()) ? String(e.dni).trim() : null;
-            if (dniValido) dnisValidosSet.add(dniValido);
 
             listaEst.push({
               ...e,
               dni: dniValido || `PEND-${idx + 1}`,
               dniOriginal: dniValido || (e.dni || 'Pendiente')
-            });
-          }
-        });
-      }
-
-      // 2. Si hay alumnos en el Dashboard que quedaron fuera por tener DNI "Pendiente" duplicado en Sheets, recuperarlos
-      if (dashRes.success && Array.isArray(dashRes.registros)) {
-        dashRes.registros.forEach(r => {
-          if (r.nombre && r.nombre.trim()) {
-            const nomNorm = norm(r.nombre);
-            const dniValido = r.dni && /^\d{8}$/.test(String(r.dni).trim()) ? String(r.dni).trim() : null;
-
-            if (dniValido && dnisValidosSet.has(dniValido)) return;
-            if (nombresSet.has(nomNorm)) return;
-
-            nombresSet.add(nomNorm);
-            if (dniValido) dnisValidosSet.add(dniValido);
-
-            listaEst.push({
-              nombre: r.nombre.trim(),
-              dni: dniValido || `PEND-${listaEst.length + 1}`,
-              dniOriginal: dniValido || (r.dni || 'Pendiente'),
-              grado: r.grado || '2do',
-              nivel: r.nivel || 'Secundaria',
-              celular: ''
             });
           }
         });
