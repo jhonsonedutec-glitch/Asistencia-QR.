@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { obtenerEstudiantes, obtenerDashboard, registrarAsistencia, justificarFalta, registrarManualLote } from '../services/api';
+import { obtenerEstudiantes, obtenerDashboard, registrarAsistencia, justificarFalta, registrarManualLote, obtenerDiasNoLaborables } from '../services/api';
 
 const ESTADOS = [
   { valor: 'Asistió', label: 'Asistió', color: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' },
@@ -14,6 +14,7 @@ function getBadgeClass(estado) {
   if (estado === 'Tardanza') return 'bg-amber-500/10 text-amber-400 border-amber-500/30';
   if (estado === 'Falta') return 'bg-red-500/10 text-red-400 border-red-500/30';
   if (estado === 'Justificado') return 'bg-purple-500/10 text-purple-400 border-purple-500/30';
+  if (estado === 'No Laborable') return 'bg-slate-700/40 text-slate-300 border-slate-600/50';
   return 'bg-slate-700/30 text-slate-400 border-slate-600/30';
 }
 
@@ -24,10 +25,11 @@ export default function RegistroManual() {
   });
   const [busqueda, setBusqueda] = useState('');
   const [gradoFiltro, setGradoFiltro] = useState('TODOS');
-  const [estadoFiltro, setEstadoFiltro] = useState('FALTA'); // Por defecto 'FALTA' a petición del usuario
+  const [estadoFiltro, setEstadoFiltro] = useState('FALTA'); // Ajustado automáticamente según el día
 
   const [estudiantes, setEstudiantes] = useState([]);
   const [dashboardData, setDashboardData] = useState(null);
+  const [diasNoLaborables, setDiasNoLaborables] = useState([]);
   const [cambios, setCambios] = useState({}); // { [dni]: nuevoEstado }
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -40,14 +42,15 @@ export default function RegistroManual() {
     return `${d}/${m}/${y}`;
   }, [fecha]);
 
-  // Cargar estudiantes y dashboard inicial
+  // Cargar estudiantes, dashboard inicial y calendario de feriados / días no laborables
   const cargarDatos = useCallback(async () => {
     setLoading(true);
     setMensaje(null);
     try {
-      const [estRes, dashRes] = await Promise.all([
+      const [estRes, dashRes, noLabRes] = await Promise.all([
         obtenerEstudiantes(),
-        obtenerDashboard(1)
+        obtenerDashboard(1),
+        obtenerDiasNoLaborables()
       ]);
 
       let listaEst = [];
@@ -71,6 +74,9 @@ export default function RegistroManual() {
       if (dashRes.success) {
         setDashboardData(dashRes);
       }
+      if (Array.isArray(noLabRes)) {
+        setDiasNoLaborables(noLabRes);
+      }
     } catch (e) {
       setMensaje({ tipo: 'error', texto: 'Error al cargar datos: ' + e.message });
     } finally {
@@ -81,6 +87,20 @@ export default function RegistroManual() {
   useEffect(() => {
     cargarDatos();
   }, [cargarDatos]);
+
+  // Verificar si la fecha seleccionada está registrada como No Laborable en el Calendario Anual
+  const esDiaNoLaborable = useMemo(() => {
+    return diasNoLaborables.includes(fechaFormatted);
+  }, [diasNoLaborables, fechaFormatted]);
+
+  // Al cambiar entre día laborable y no laborable, ajustar el filtro por defecto
+  useEffect(() => {
+    if (esDiaNoLaborable) {
+      setEstadoFiltro('NO_LABORABLE');
+    } else {
+      setEstadoFiltro('FALTA');
+    }
+  }, [esDiaNoLaborable]);
 
   // Extraer lista de grados únicos de los estudiantes
   const gradosDisponibles = useMemo(() => {
@@ -126,7 +146,8 @@ export default function RegistroManual() {
       const registroExistente = estadosPorDni[est.dni] || estadosPorDni['nom_' + nomKey];
       const cambioLocal = cambios[est.dni];
 
-      let estadoActual = 'Falta'; // Si no hay registro para el día, se considera Falta/Sin registrar
+      // Si el día está configurado como No Laborable en el Calendario, el estado por defecto es "No Laborable"
+      let estadoActual = esDiaNoLaborable ? 'No Laborable' : 'Falta';
       let hora = '--:--';
       let registradoPreviamente = false;
 
@@ -151,7 +172,7 @@ export default function RegistroManual() {
         conCambio: Boolean(cambioLocal)
       };
     });
-  }, [estudiantes, estadosPorDni, cambios]);
+  }, [estudiantes, estadosPorDni, cambios, esDiaNoLaborable]);
 
   // Filtrado reactivo por: Búsqueda (DNI / Nombre / Apellido), Grado y Estado
   const listaFiltrada = useMemo(() => {
@@ -170,6 +191,8 @@ export default function RegistroManual() {
         if (item.estadoActual !== 'Tardanza') return false;
       } else if (estadoFiltro === 'JUSTIFICADO') {
         if (item.estadoActual !== 'Justificado') return false;
+      } else if (estadoFiltro === 'NO_LABORABLE') {
+        if (item.estadoActual !== 'No Laborable') return false;
       }
 
       // Filtro de búsqueda por texto (DNI, Nombre o Apellido)
@@ -190,15 +213,17 @@ export default function RegistroManual() {
     let tardanzas = 0;
     let faltas = 0;
     let justificados = 0;
+    let noLaborables = 0;
 
     listaProcesada.forEach(item => {
       if (item.estadoActual.includes('Asisti')) asistencias++;
       else if (item.estadoActual === 'Tardanza') tardanzas++;
       else if (item.estadoActual === 'Falta') faltas++;
       else if (item.estadoActual === 'Justificado') justificados++;
+      else if (item.estadoActual === 'No Laborable') noLaborables++;
     });
 
-    return { total: listaProcesada.length, asistencias, tardanzas, faltas, justificados };
+    return { total: listaProcesada.length, asistencias, tardanzas, faltas, justificados, noLaborables };
   }, [listaProcesada]);
 
   // Cambiar estado individual
@@ -280,62 +305,161 @@ export default function RegistroManual() {
           <h1 className="mt-1 text-3xl font-black text-white md:text-4xl">Registro de Faltas y Asistencia</h1>
           <p className="mt-1 text-slate-400">Busca alumnos y actualiza su estado (Asistió, Tardanza, Falta, Justificado).</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2.5">
+          {esDiaNoLaborable ? (
+            <span className="inline-flex items-center gap-1.5 rounded-xl bg-amber-500/15 border border-amber-500/30 px-3 py-2 text-xs font-bold text-amber-300 shadow-sm">
+              <span className="h-2 w-2 rounded-full bg-amber-400 animate-pulse"></span>
+              🏖️ Día No Laborable
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 px-3 py-2 text-xs font-bold text-emerald-300 shadow-sm">
+              <span className="h-2 w-2 rounded-full bg-emerald-400"></span>
+              📅 Día Escolar Habilitado
+            </span>
+          )}
           <input
             type="date"
             value={fecha}
             onChange={(e) => setFecha(e.target.value)}
-            className="rounded-xl border border-slate-700 bg-slate-900/90 px-4 py-2.5 text-sm text-white font-semibold shadow-inner focus:border-blue-500 outline-none"
+            className="rounded-xl border border-slate-700 bg-slate-900/90 px-4 py-2 text-sm text-white font-semibold shadow-inner focus:border-blue-500 outline-none"
           />
         </div>
       </div>
 
+      {/* Banner Informativo para Días No Laborables */}
+      {esDiaNoLaborable && (
+        <div className="mb-6 overflow-hidden rounded-2xl border border-amber-500/40 bg-gradient-to-r from-amber-500/15 via-amber-500/5 to-slate-900/80 p-5 shadow-xl backdrop-blur-md">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="flex items-start gap-4">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-amber-500/20 text-2xl border border-amber-500/30 shadow-inner">
+                🗓️
+              </div>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="font-bold text-amber-300 text-base">
+                    Día Configurado como NO Laborable en el Calendario
+                  </h3>
+                  <span className="rounded-full bg-amber-400/20 border border-amber-400/30 px-2.5 py-0.5 text-xs font-bold text-amber-200">
+                    🏖️ Sin Actividad Escolar
+                  </span>
+                </div>
+                <p className="mt-1 text-sm text-slate-300 leading-relaxed">
+                  La fecha seleccionada (<strong>{fechaFormatted}</strong>) está registrada como <strong>día no laborable</strong> en el Calendario Anual (fin de semana o feriado).
+                </p>
+                <p className="mt-1 text-xs text-amber-200/80">
+                  ✨ <strong>Control Automático:</strong> En este día no se computan faltas automáticas a los estudiantes en Google Sheets ni se afectan las estadísticas del Dashboard.
+                </p>
+              </div>
+            </div>
+            <div className="shrink-0 self-end sm:self-center">
+              <span className="inline-flex items-center gap-1.5 rounded-xl bg-slate-800/90 px-3.5 py-2 text-xs font-semibold text-slate-300 border border-slate-700/80 shadow">
+                <span className="h-2 w-2 rounded-full bg-amber-400"></span>
+                Estado: Faltas Desactivadas
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Tarjetas de métricas rápidas */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-        <div 
-          onClick={() => setEstadoFiltro('FALTA')}
-          className={`cursor-pointer rounded-2xl border p-4 transition-all ${
-            estadoFiltro === 'FALTA' 
-              ? 'bg-red-500/20 border-red-500 ring-2 ring-red-500/50' 
-              : 'bg-slate-900/60 border-slate-800 hover:border-red-900/50'
-          }`}
-        >
-          <div className="text-xs font-bold text-red-400 uppercase tracking-wider">Faltas</div>
-          <div className="text-3xl font-black text-white mt-1">{conteos.faltas}</div>
-        </div>
-        <div 
-          onClick={() => setEstadoFiltro('ASISTIO')}
-          className={`cursor-pointer rounded-2xl border p-4 transition-all ${
-            estadoFiltro === 'ASISTIO' 
-              ? 'bg-emerald-500/20 border-emerald-500 ring-2 ring-emerald-500/50' 
-              : 'bg-slate-900/60 border-slate-800 hover:border-emerald-900/50'
-          }`}
-        >
-          <div className="text-xs font-bold text-emerald-400 uppercase tracking-wider">Asistieron</div>
-          <div className="text-3xl font-black text-white mt-1">{conteos.asistencias}</div>
-        </div>
-        <div 
-          onClick={() => setEstadoFiltro('TARDANZA')}
-          className={`cursor-pointer rounded-2xl border p-4 transition-all ${
-            estadoFiltro === 'TARDANZA' 
-              ? 'bg-amber-500/20 border-amber-500 ring-2 ring-amber-500/50' 
-              : 'bg-slate-900/60 border-slate-800 hover:border-amber-900/50'
-          }`}
-        >
-          <div className="text-xs font-bold text-amber-400 uppercase tracking-wider">Tardanzas</div>
-          <div className="text-3xl font-black text-white mt-1">{conteos.tardanzas}</div>
-        </div>
-        <div 
-          onClick={() => setEstadoFiltro('JUSTIFICADO')}
-          className={`cursor-pointer rounded-2xl border p-4 transition-all ${
-            estadoFiltro === 'JUSTIFICADO' 
-              ? 'bg-purple-500/20 border-purple-500 ring-2 ring-purple-500/50' 
-              : 'bg-slate-900/60 border-slate-800 hover:border-purple-900/50'
-          }`}
-        >
-          <div className="text-xs font-bold text-purple-400 uppercase tracking-wider">Justificados</div>
-          <div className="text-3xl font-black text-white mt-1">{conteos.justificados}</div>
-        </div>
+        {esDiaNoLaborable ? (
+          <>
+            <div 
+              onClick={() => setEstadoFiltro('NO_LABORABLE')}
+              className={`cursor-pointer rounded-2xl border p-4 transition-all ${
+                estadoFiltro === 'NO_LABORABLE' 
+                  ? 'bg-slate-700/40 border-amber-500 ring-2 ring-amber-500/50' 
+                  : 'bg-slate-900/60 border-slate-800 hover:border-amber-700/50'
+              }`}
+            >
+              <div className="text-xs font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
+                <span>🏖️</span> No Laborables
+              </div>
+              <div className="text-3xl font-black text-white mt-1">{conteos.noLaborables}</div>
+            </div>
+            <div 
+              onClick={() => setEstadoFiltro('FALTA')}
+              className={`cursor-pointer rounded-2xl border p-4 transition-all ${
+                estadoFiltro === 'FALTA' 
+                  ? 'bg-red-500/20 border-red-500 ring-2 ring-red-500/50' 
+                  : 'bg-slate-900/60 border-slate-800 hover:border-red-900/50'
+              }`}
+            >
+              <div className="text-xs font-bold text-red-400 uppercase tracking-wider">Faltas</div>
+              <div className="text-3xl font-black text-white mt-1">{conteos.faltas}</div>
+            </div>
+            <div 
+              onClick={() => setEstadoFiltro('ASISTIO')}
+              className={`cursor-pointer rounded-2xl border p-4 transition-all ${
+                estadoFiltro === 'ASISTIO' 
+                  ? 'bg-emerald-500/20 border-emerald-500 ring-2 ring-emerald-500/50' 
+                  : 'bg-slate-900/60 border-slate-800 hover:border-emerald-900/50'
+              }`}
+            >
+              <div className="text-xs font-bold text-emerald-400 uppercase tracking-wider">Asistieron</div>
+              <div className="text-3xl font-black text-white mt-1">{conteos.asistencias}</div>
+            </div>
+            <div 
+              onClick={() => setEstadoFiltro('JUSTIFICADO')}
+              className={`cursor-pointer rounded-2xl border p-4 transition-all ${
+                estadoFiltro === 'JUSTIFICADO' 
+                  ? 'bg-purple-500/20 border-purple-500 ring-2 ring-purple-500/50' 
+                  : 'bg-slate-900/60 border-slate-800 hover:border-purple-900/50'
+              }`}
+            >
+              <div className="text-xs font-bold text-purple-400 uppercase tracking-wider">Justificados</div>
+              <div className="text-3xl font-black text-white mt-1">{conteos.justificados}</div>
+            </div>
+          </>
+        ) : (
+          <>
+            <div 
+              onClick={() => setEstadoFiltro('FALTA')}
+              className={`cursor-pointer rounded-2xl border p-4 transition-all ${
+                estadoFiltro === 'FALTA' 
+                  ? 'bg-red-500/20 border-red-500 ring-2 ring-red-500/50' 
+                  : 'bg-slate-900/60 border-slate-800 hover:border-red-900/50'
+              }`}
+            >
+              <div className="text-xs font-bold text-red-400 uppercase tracking-wider">Faltas</div>
+              <div className="text-3xl font-black text-white mt-1">{conteos.faltas}</div>
+            </div>
+            <div 
+              onClick={() => setEstadoFiltro('ASISTIO')}
+              className={`cursor-pointer rounded-2xl border p-4 transition-all ${
+                estadoFiltro === 'ASISTIO' 
+                  ? 'bg-emerald-500/20 border-emerald-500 ring-2 ring-emerald-500/50' 
+                  : 'bg-slate-900/60 border-slate-800 hover:border-emerald-900/50'
+              }`}
+            >
+              <div className="text-xs font-bold text-emerald-400 uppercase tracking-wider">Asistieron</div>
+              <div className="text-3xl font-black text-white mt-1">{conteos.asistencias}</div>
+            </div>
+            <div 
+              onClick={() => setEstadoFiltro('TARDANZA')}
+              className={`cursor-pointer rounded-2xl border p-4 transition-all ${
+                estadoFiltro === 'TARDANZA' 
+                  ? 'bg-amber-500/20 border-amber-500 ring-2 ring-amber-500/50' 
+                  : 'bg-slate-900/60 border-slate-800 hover:border-amber-900/50'
+              }`}
+            >
+              <div className="text-xs font-bold text-amber-400 uppercase tracking-wider">Tardanzas</div>
+              <div className="text-3xl font-black text-white mt-1">{conteos.tardanzas}</div>
+            </div>
+            <div 
+              onClick={() => setEstadoFiltro('JUSTIFICADO')}
+              className={`cursor-pointer rounded-2xl border p-4 transition-all ${
+                estadoFiltro === 'JUSTIFICADO' 
+                  ? 'bg-purple-500/20 border-purple-500 ring-2 ring-purple-500/50' 
+                  : 'bg-slate-900/60 border-slate-800 hover:border-purple-900/50'
+              }`}
+            >
+              <div className="text-xs font-bold text-purple-400 uppercase tracking-wider">Justificados</div>
+              <div className="text-3xl font-black text-white mt-1">{conteos.justificados}</div>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Barra de Filtros Inteligentes */}
@@ -374,17 +498,30 @@ export default function RegistroManual() {
         </div>
 
         {/* Filtro de Estado */}
-        <div className="w-full md:w-48">
+        <div className="w-full md:w-52">
           <select
             value={estadoFiltro}
             onChange={(e) => setEstadoFiltro(e.target.value)}
             className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white focus:border-blue-500 outline-none"
           >
-            <option value="FALTA">🔴 Solo Faltas ({conteos.faltas})</option>
-            <option value="ASISTIO">🟢 Solo Asistieron ({conteos.asistencias})</option>
-            <option value="TARDANZA">🟡 Tardanzas ({conteos.tardanzas})</option>
-            <option value="JUSTIFICADO">🟣 Justificados ({conteos.justificados})</option>
-            <option value="TODOS">⚪ Ver Todos ({conteos.total})</option>
+            {esDiaNoLaborable ? (
+              <>
+                <option value="NO_LABORABLE">🏖️ No Laborables ({conteos.noLaborables})</option>
+                <option value="FALTA">🔴 Solo Faltas ({conteos.faltas})</option>
+                <option value="ASISTIO">🟢 Solo Asistieron ({conteos.asistencias})</option>
+                <option value="TARDANZA">🟡 Tardanzas ({conteos.tardanzas})</option>
+                <option value="JUSTIFICADO">🟣 Justificados ({conteos.justificados})</option>
+                <option value="TODOS">⚪ Ver Todos ({conteos.total})</option>
+              </>
+            ) : (
+              <>
+                <option value="FALTA">🔴 Solo Faltas ({conteos.faltas})</option>
+                <option value="ASISTIO">🟢 Solo Asistieron ({conteos.asistencias})</option>
+                <option value="TARDANZA">🟡 Tardanzas ({conteos.tardanzas})</option>
+                <option value="JUSTIFICADO">🟣 Justificados ({conteos.justificados})</option>
+                <option value="TODOS">⚪ Ver Todos ({conteos.total})</option>
+              </>
+            )}
           </select>
         </div>
       </div>
@@ -491,7 +628,7 @@ export default function RegistroManual() {
                       </td>
                       <td className="px-4 py-3">
                         <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-bold ${getBadgeClass(item.estadoActual)}`}>
-                          {item.estadoActual}
+                          {item.estadoActual === 'No Laborable' ? '🏖️ No Laborable' : item.estadoActual}
                         </span>
                         {item.conCambio && (
                           <span className="ml-1.5 text-xs text-blue-400 font-semibold">• Pendiente</span>
