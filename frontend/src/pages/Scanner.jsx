@@ -35,11 +35,19 @@ export default function Scanner() {
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
   
-  // Conmutador automático: Antes de 11:30 AM es ENTRADA; desde las 11:30 AM pasa a SALIDA
+  // Conmutador automático inteligente para los DOS turnos:
+  // - Turno Mañana (Primaria):
+  //     • Ingreso: Hasta las 11:15 AM (675 min) -> 'entrada'
+  //     • Salida: 11:15 AM a 1:15 PM (675 a 795 min) -> 'salida'
+  // - Turno Tarde (Secundaria):
+  //     • Ingreso: 1:15 PM a 3:30 PM (795 a 930 min) -> 'entrada'
+  //     • Salida: A partir de las 3:30 PM (> 930 min) -> 'salida'
   const [tipoRegistro, setTipoRegistro] = useState(() => {
     const ahora = new Date();
-    const minutosDelDia = ahora.getHours() * 60 + ahora.getMinutes();
-    return minutosDelDia >= (11 * 60 + 30) ? 'salida' : 'entrada';
+    const min = ahora.getHours() * 60 + ahora.getMinutes();
+    if (min >= 675 && min < 795) return 'salida'; // Salida Turno Mañana (Primaria)
+    if (min >= 930) return 'salida';              // Salida Turno Tarde (Secundaria)
+    return 'entrada';                             // Ingreso Mañana (<11:15) o Ingreso Tarde (13:15 a 15:30)
   });
 
   const process = useCallback(async (dni) => {
