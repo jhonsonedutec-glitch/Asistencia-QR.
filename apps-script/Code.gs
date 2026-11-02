@@ -13,6 +13,8 @@ const HOJA_ESTUDIANTES = 'BD_Estudiantes';
 const HOJA_REGISTRO = 'Registro_Diario';
 const HOJA_JUSTIFICACIONES = 'Justificaciones';
 const HOJA_CALENDARIO = 'CALENDARIO_ANUAL';
+const HOJA_DOCENTES = 'BD_Docentes';
+const HOJA_TAREAS = 'Tareas_Escolares';
 
 // --- API DE WHATSAPP (META CLOUD API) ---
 // IMPORTANTE: Recuerda pegar aquí tu token real de Meta
@@ -75,6 +77,17 @@ function doGet(e) {
       return jsonResponse(obtenerGradosDisponibles());
     }
 
+    if (action === 'login_docente') {
+      const dni = String(e.parameter.dni || '').trim();
+      return jsonResponse(verificarDocente(dni));
+    }
+
+    if (action === 'obtener_tareas') {
+      const grado = String(e.parameter.grado || '').trim();
+      const dniDocente = String(e.parameter.dniDocente || '').trim();
+      return jsonResponse(obtenerTareas(grado, dniDocente));
+    }
+
     return jsonResponse({ success: false, message: 'Acción no válida' });
 
   } catch (error) {
@@ -110,6 +123,18 @@ function doPost(e) {
 
     if (action === 'registrar_manual_lote') {
       return jsonResponse(registrarManualLote(data));
+    }
+
+    if (action === 'registrar_tarea') {
+      return jsonResponse(registrarTarea(data));
+    }
+
+    if (action === 'finalizar_tarea') {
+      return jsonResponse(cambiarEstadoTarea(data.idTarea, 'Finalizada'));
+    }
+
+    if (action === 'eliminar_tarea') {
+      return jsonResponse(eliminarTarea(data.idTarea));
     }
 
     if (action !== 'registrar') {
@@ -895,4 +920,217 @@ function registrarInasistencias() {
   }
   
   console.log('Proceso de inasistencias completado. Se registraron ' + nuevasFilas.length + ' faltas nuevas.');
+}
+
+
+// ============================================================
+// MÓDULO DE TAREAS Y AGENDA ESCOLAR (DOCENTES Y PADRES)
+// ============================================================
+
+function asegurarHojaDocentes() {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  let hoja = ss.getSheetByName(HOJA_DOCENTES);
+  if (!hoja) {
+    hoja = ss.insertSheet(HOJA_DOCENTES);
+    hoja.appendRow(['DNI', 'Nombre_Docente', 'Nivel_Grados', 'Telefono', 'Estado']);
+    hoja.getRange(1, 1, 1, 5).setFontWeight('bold').setBackground('#1e293b').setFontColor('#ffffff');
+    SpreadsheetApp.flush();
+  }
+  return hoja;
+}
+
+function asegurarHojaTareas() {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  let hoja = ss.getSheetByName(HOJA_TAREAS);
+  if (!hoja) {
+    hoja = ss.insertSheet(HOJA_TAREAS);
+    hoja.appendRow(['ID_Tarea', 'Fecha_Registro', 'Grado_Nivel', 'Curso_Materia', 'Docente', 'Descripcion', 'Fecha_Entrega', 'Estado', 'DNI_Docente']);
+    hoja.getRange(1, 1, 1, 9).setFontWeight('bold').setBackground('#1e293b').setFontColor('#ffffff');
+    SpreadsheetApp.flush();
+  }
+  return hoja;
+}
+
+function verificarDocente(dni) {
+  if (!/^\d{8}$/.test(dni)) {
+    return { success: false, message: 'El DNI debe tener 8 dígitos numéricos.' };
+  }
+  const hoja = asegurarHojaDocentes();
+  const ultFila = hoja.getLastRow();
+  if (ultFila <= 1) {
+    return { 
+      success: false, 
+      message: 'No hay docentes registrados en la hoja BD_Docentes de Google Sheets. Agrega tu DNI y Nombre en la hoja para iniciar sesión.',
+      sinRegistros: true
+    };
+  }
+
+  const datos = hoja.getRange(2, 1, ultFila - 1, Math.max(hoja.getLastColumn(), 5)).getValues();
+  for (let i = 0; i < datos.length; i++) {
+    const dFila = String(datos[i][0] || '').trim();
+    if (dFila === dni) {
+      return {
+        success: true,
+        docente: {
+          dni: dFila,
+          nombre: String(datos[i][1] || '').trim(),
+          nivel: String(datos[i][2] || '').trim(),
+          telefono: String(datos[i][3] || '').trim(),
+          estado: String(datos[i][4] || 'Activo').trim()
+        }
+      };
+    }
+  }
+
+  return { success: false, message: 'DNI no encontrado en el padrón de docentes. Solicita a dirección tu registro en BD_Docentes.' };
+}
+
+function obtenerTareas(gradoFiltro, dniDocente) {
+  const hoja = asegurarHojaTareas();
+  const ultFila = hoja.getLastRow();
+  if (ultFila <= 1) {
+    return { success: true, tareas: [] };
+  }
+
+  const tz = Session.getScriptTimeZone() || 'America/Lima';
+  const datos = hoja.getRange(2, 1, ultFila - 1, Math.max(hoja.getLastColumn(), 9)).getValues();
+  const tareas = [];
+
+  for (let i = datos.length - 1; i >= 0; i--) {
+    const id = String(datos[i][0] || '').trim();
+    if (!id) continue;
+    
+    const fReg = datos[i][1];
+    const fechaRegStr = fReg instanceof Date ? Utilities.formatDate(fReg, tz, 'dd/MM/yyyy') : String(fReg || '').trim();
+    
+    const grado = String(datos[i][2] || '').trim();
+    const curso = String(datos[i][3] || '').trim();
+    const docente = String(datos[i][4] || '').trim();
+    const descripcion = String(datos[i][5] || '').trim();
+    
+    const fEnt = datos[i][6];
+    const fechaEntStr = fEnt instanceof Date ? Utilities.formatDate(fEnt, tz, 'dd/MM/yyyy') : String(fEnt || '').trim();
+    
+    const estado = String(datos[i][7] || 'Activa').trim();
+    const dniD = String(datos[i][8] || '').trim();
+
+    if (gradoFiltro && gradoFiltro !== 'TODOS') {
+      const gNorm = grado.toLowerCase().replace(/[\s-]+/g, '');
+      const fNorm = gradoFiltro.toLowerCase().replace(/[\s-]+/g, '');
+      if (gNorm !== fNorm && !gNorm.includes(fNorm) && !fNorm.includes(gNorm)) {
+        continue;
+      }
+    }
+
+    if (dniDocente && dniD && dniD !== dniDocente) {
+      continue;
+    }
+
+    tareas.push({
+      id: id,
+      fechaRegistro: fechaRegStr,
+      grado: grado,
+      curso: curso,
+      docente: docente,
+      descripcion: descripcion,
+      fechaEntrega: fechaEntStr,
+      estado: estado,
+      dniDocente: dniD
+    });
+  }
+
+  return { success: true, tareas: tareas };
+}
+
+function registrarTarea(data) {
+  const dniDocente = String(data.dniDocente || '').trim();
+  const grado = String(data.grado || '').trim();
+  const curso = String(data.curso || '').trim();
+  const descripcion = String(data.descripcion || '').trim();
+  const fechaEntrega = String(data.fechaEntrega || '').trim();
+  let nombreDocente = String(data.nombreDocente || '').trim();
+
+  if (!grado || !curso || !descripcion) {
+    return { success: false, message: 'Por favor complete el grado, curso y la descripción de la tarea.' };
+  }
+
+  if (dniDocente) {
+    const docRes = verificarDocente(dniDocente);
+    if (docRes.success && docRes.docente.nombre) {
+      nombreDocente = docRes.docente.nombre;
+    }
+  }
+
+  if (!nombreDocente) {
+    nombreDocente = 'Docente IEP Millenium';
+  }
+
+  const hoja = asegurarHojaTareas();
+  const tz = Session.getScriptTimeZone() || 'America/Lima';
+  const ahora = new Date();
+  const fechaHoy = Utilities.formatDate(ahora, tz, 'dd/MM/yyyy');
+  const idTarea = 'TAR-' + Utilities.formatDate(ahora, tz, 'yyyyMMdd-HHmmss') + '-' + Math.floor(Math.random() * 900 + 100);
+
+  hoja.appendRow([
+    idTarea,
+    "'" + fechaHoy,
+    grado,
+    curso,
+    nombreDocente,
+    descripcion,
+    fechaEntrega ? "'" + fechaEntrega : "'" + fechaHoy,
+    'Activa',
+    dniDocente
+  ]);
+  SpreadsheetApp.flush();
+
+  return {
+    success: true,
+    message: 'Tarea publicada correctamente para ' + grado + '.',
+    tarea: {
+      id: idTarea,
+      fechaRegistro: fechaHoy,
+      grado: grado,
+      curso: curso,
+      docente: nombreDocente,
+      descripcion: descripcion,
+      fechaEntrega: fechaEntrega || fechaHoy,
+      estado: 'Activa',
+      dniDocente: dniDocente
+    }
+  };
+}
+
+function cambiarEstadoTarea(idTarea, nuevoEstado) {
+  if (!idTarea) return { success: false, message: 'ID de tarea requerido.' };
+  const hoja = asegurarHojaTareas();
+  const ultFila = hoja.getLastRow();
+  if (ultFila <= 1) return { success: false, message: 'No hay tareas registradas.' };
+
+  const datos = hoja.getRange(2, 1, ultFila - 1, 1).getValues();
+  for (let i = 0; i < datos.length; i++) {
+    if (String(datos[i][0]).trim() === String(idTarea).trim()) {
+      hoja.getRange(i + 2, 8).setValue(nuevoEstado);
+      SpreadsheetApp.flush();
+      return { success: true, message: 'Estado de la tarea actualizado a ' + nuevoEstado + '.' };
+    }
+  }
+  return { success: false, message: 'Tarea no encontrada.' };
+}
+
+function eliminarTarea(idTarea) {
+  if (!idTarea) return { success: false, message: 'ID de tarea requerido.' };
+  const hoja = asegurarHojaTareas();
+  const ultFila = hoja.getLastRow();
+  if (ultFila <= 1) return { success: false, message: 'No hay tareas registradas.' };
+
+  const datos = hoja.getRange(2, 1, ultFila - 1, 1).getValues();
+  for (let i = 0; i < datos.length; i++) {
+    if (String(datos[i][0]).trim() === String(idTarea).trim()) {
+      hoja.deleteRow(i + 2);
+      SpreadsheetApp.flush();
+      return { success: true, message: 'Tarea eliminada correctamente.' };
+    }
+  }
+  return { success: false, message: 'Tarea no encontrada.' };
 }

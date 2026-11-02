@@ -306,3 +306,88 @@ export const obtenerDiasNoLaborables = async () => {
     return [];
   }
 };
+
+
+// --- Módulo de Docentes y Tareas Escolares ---
+export const verificarDocente = (dni) => request(`${GAS_URL}?action=login_docente&dni=${dni}`);
+
+export const obtenerTareas = async (grado = '', dniDocente = '') => {
+  try {
+    let url = `${GAS_URL}?action=obtener_tareas`;
+    if (grado) url += `&grado=${encodeURIComponent(grado)}`;
+    if (dniDocente) url += `&dniDocente=${encodeURIComponent(dniDocente)}`;
+    
+    // Intentar primero con GAS
+    const res = await request(url).catch(() => null);
+    if (res && res.success && Array.isArray(res.tareas)) {
+      return res;
+    }
+
+    // Fallback GViz en tiempo real si GAS está desplegando
+    const gvizUrl = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=Tareas_Escolares`;
+    const gRes = await fetch(gvizUrl);
+    if (gRes.ok) {
+      const text = await gRes.text();
+      const lines = text.split('\n').filter(l => l.trim().length > 0);
+      const tareas = [];
+      for (let i = 1; i < lines.length; i++) {
+        const parts = parseCSVLine(lines[i]);
+        const id = parts[0] ? parts[0].replace(/^"|"$/g, '').trim() : '';
+        const fReg = parts[1] ? normalizarFecha(parts[1]) : '';
+        const g = parts[2] ? parts[2].replace(/^"|"$/g, '').trim() : '';
+        const c = parts[3] ? parts[3].replace(/^"|"$/g, '').trim() : '';
+        const doc = parts[4] ? parts[4].replace(/^"|"$/g, '').trim() : '';
+        const desc = parts[5] ? parts[5].replace(/^"|"$/g, '').trim() : '';
+        const fEnt = parts[6] ? normalizarFecha(parts[6]) : '';
+        const est = parts[7] ? parts[7].replace(/^"|"$/g, '').trim() : 'Activa';
+        const dDoc = parts[8] ? parts[8].replace(/^"|"$/g, '').trim() : '';
+
+        if (!id) continue;
+        if (grado && grado !== 'TODOS') {
+          const gNorm = g.toLowerCase().replace(/[\s-]+/g, '');
+          const fNorm = grado.toLowerCase().replace(/[\s-]+/g, '');
+          if (gNorm !== fNorm && !gNorm.includes(fNorm) && !fNorm.includes(gNorm)) {
+            continue;
+          }
+        }
+        if (dniDocente && dDoc && dDoc !== dniDocente) continue;
+
+        tareas.push({
+          id,
+          fechaRegistro: fReg,
+          grado: g,
+          curso: c,
+          docente: doc,
+          descripcion: desc,
+          fechaEntrega: fEnt,
+          estado: est,
+          dniDocente: dDoc
+        });
+      }
+      return { success: true, tareas: tareas.reverse() };
+    }
+
+    return { success: true, tareas: [] };
+  } catch (err) {
+    console.error('Error al obtener tareas:', err);
+    return { success: false, message: err.message, tareas: [] };
+  }
+};
+
+export const registrarTarea = (data) => request(GAS_URL, {
+  method: 'POST',
+  headers: { 'Content-Type': 'text/plain' },
+  body: JSON.stringify({ action: 'registrar_tarea', ...data })
+});
+
+export const finalizarTarea = (idTarea, dniDocente) => request(GAS_URL, {
+  method: 'POST',
+  headers: { 'Content-Type': 'text/plain' },
+  body: JSON.stringify({ action: 'finalizar_tarea', idTarea, dniDocente })
+});
+
+export const eliminarTarea = (idTarea, dniDocente) => request(GAS_URL, {
+  method: 'POST',
+  headers: { 'Content-Type': 'text/plain' },
+  body: JSON.stringify({ action: 'eliminar_tarea', idTarea, dniDocente })
+});

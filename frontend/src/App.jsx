@@ -7,6 +7,7 @@ import Generator from './pages/Generator';
 import Justificaciones from './pages/Justificaciones';
 import ConsultaPadres from './pages/ConsultaPadres';
 import RegistroManual from './pages/RegistroManual';
+import TareasDocentes from './pages/TareasDocentes';
 
 // Layout para el área administrativa (con Header y Footer)
 const AdminLayout = ({ children }) => (
@@ -24,9 +25,13 @@ export default function App() {
     <BrowserRouter>
       <div className="flex min-h-screen flex-col">
         <Routes>
-          {/* Ruta pública para padres (sin Header ni Footer) */}
+          {/* Ruta pública para padres (sin Header de admin) */}
           <Route path="/padres" element={<ConsultaPadres />} />
           
+          {/* Ruta independiente para docentes con soporte PWA e instalación en teléfono */}
+          <Route path="/docentes" element={<TareasDocentes />} />
+          <Route path="/tareas" element={<TareasDocentes />} />
+
           {/* Rutas administrativas */}
           <Route path="/" element={<AdminLayout><Scanner /></AdminLayout>} />
           <Route path="/dashboard" element={<AdminLayout><Dashboard /></AdminLayout>} />

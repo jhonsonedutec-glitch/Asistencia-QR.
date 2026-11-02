@@ -1,0 +1,23 @@
+{
+  "short_name": "Agenda Docente",
+  "name": "Agenda y Tareas - IEP MILLENIUM",
+  "description": "Módulo de Registro y Control de Tareas Escolares para Docentes",
+  "icons": [
+    {
+      "src": "/tareas.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/tareas.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    }
+  ],
+  "start_url": "/docentes",
+  "background_color": "#0f172a",
+  "theme_color": "#2563eb",
+  "display": "standalone",
+  "orientation": "portrait"
+}
