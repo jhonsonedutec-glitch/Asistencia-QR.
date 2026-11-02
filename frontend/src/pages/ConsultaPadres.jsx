@@ -78,7 +78,7 @@ const ConsultaPadres = () => {
             className="w-24 h-24 mx-auto mb-4 rounded-3xl shadow-lg border-2 border-white object-cover"
           />
           <h2 className="text-3xl font-extrabold text-gray-900 mb-2">Portal de Padres</h2>
-          <p className="text-gray-600">Consulta el historial de asistencia de tu hijo/a ingresando su DNI.</p>
+          <p className="text-gray-600">Consulta en tiempo real la asistencia, ingreso y salida escolar de tu hijo/a.</p>
         </div>
 
         <div className="bg-white rounded-xl shadow-md overflow-hidden mb-8">
@@ -162,7 +162,7 @@ const ConsultaPadres = () => {
                 </div>
               </div>
 
-              <h4 className="font-bold text-gray-800 mb-4 border-b pb-2">Historial de Registros</h4>
+              <h4 className="font-bold text-gray-800 mb-4 border-b pb-2">Historial y Trazabilidad de Asistencia</h4>
               
               {(!data.historial || data.historial.length === 0) ? (
                 <p className="text-gray-500 text-center py-4">No hay registros de asistencia disponibles.</p>
@@ -175,16 +175,29 @@ const ConsultaPadres = () => {
                     else if (registro.estado === 'Falta') badgeColor = 'bg-red-100 text-red-800 border border-red-200';
                     else if (registro.estado === 'Justificado') badgeColor = 'bg-purple-100 text-purple-800 border border-purple-200';
 
+                    const tieneIngreso = registro.hora && registro.hora !== '--:--';
+                    const tieneSalida = registro.horaSalida && registro.horaSalida !== '--:--';
+
                     return (
                       <div key={idx} className="flex justify-between items-center p-4 hover:bg-gray-50 border border-gray-100 rounded-lg transition-colors">
                         <div className="flex flex-col">
-                          <span className="font-medium text-gray-900">{registro.fecha}</span>
-                          <span className="text-sm text-gray-500">{registro.hora || '--:--'}</span>
+                          <span className="font-semibold text-gray-900">{registro.fecha}</span>
+                          <div className="flex flex-wrap items-center gap-2 text-xs sm:text-sm text-gray-600 mt-1">
+                            <span className="flex items-center gap-1 font-medium text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100">
+                              <span>🕒 Ingreso:</span> <span>{registro.hora || '--:--'}</span>
+                            </span>
+                            <span className="flex items-center gap-1 font-medium text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-100">
+                              <span>🚪 Salida:</span> 
+                              <span className={tieneSalida ? 'font-bold text-blue-800' : 'text-amber-700 font-semibold'}>
+                                {tieneSalida ? registro.horaSalida : (tieneIngreso && (registro.estado.includes('Asisti') || registro.estado === 'Tardanza') ? 'En el colegio' : '--:--')}
+                              </span>
+                            </span>
+                          </div>
                           {registro.motivo && (
                             <span className="text-xs text-purple-700 mt-1 italic">Motivo: {registro.motivo}</span>
                           )}
                         </div>
-                        <span className={`px-3 py-1 rounded-full text-sm font-semibold ${badgeColor}`}>
+                        <span className={`px-3 py-1 rounded-full text-xs sm:text-sm font-semibold shrink-0 ml-2 ${badgeColor}`}>
                           {registro.estado}
                         </span>
                       </div>

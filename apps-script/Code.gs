@@ -119,36 +119,94 @@ function doPost(e) {
       return jsonResponse({ success: false, message: 'El DNI debe contener 8 dígitos numéricos.' });
     }
 
+    const tipo = String(data.tipo || 'entrada').toLowerCase();
     const SCRIPT_PROPERTIES = PropertiesService.getScriptProperties();
     const hoy = new Date();
     const tz = Session.getScriptTimeZone() || 'America/Lima';
     const fechaKey = Utilities.formatDate(hoy, tz, 'yyyy-MM-dd');
-    const propertyKey = 'asistencia_' + dni + '_' + fechaKey;
-
-    if (SCRIPT_PROPERTIES.getProperty(propertyKey)) {
-      return jsonResponse({
-        success: false,
-        duplicate: true,
-        message: 'La asistencia para este estudiante ya fue registrada hoy.',
-        estudiante: buscarEstudiante(dni)
-      });
-    }
+    const ahora = new Date();
+    const fecha = Utilities.formatDate(ahora, tz, 'dd/MM/yyyy');
+    const hora = Utilities.formatDate(ahora, tz, 'HH:mm:ss');
 
     const estudiante = buscarEstudiante(dni);
     if (!estudiante) {
       return jsonResponse({ success: false, message: 'Estudiante no encontrado con el DNI proporcionado.' });
     }
 
-    const ahora = new Date();
-    const fecha = Utilities.formatDate(ahora, tz, 'dd/MM/yyyy');
-    const hora = Utilities.formatDate(ahora, tz, 'HH:mm:ss');
-    const estado = calcularEstado(ahora, estudiante.nivel);
-
     const hoja = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(HOJA_REGISTRO);
-    hoja.appendRow(["'" + fecha, hora, dni, estudiante.nombre, estado]);
+    const ultFilaR = hoja.getLastRow();
+    const ultColR = Math.max(hoja.getLastColumn(), 9);
+
+    // --- REGISTRO DE SALIDA ---
+    if (tipo === 'salida') {
+      const propertyKeySalida = 'salida_' + dni + '_' + fechaKey;
+      if (SCRIPT_PROPERTIES.getProperty(propertyKeySalida)) {
+        return jsonResponse({
+          success: false,
+          duplicate: true,
+          tipo: 'salida',
+          message: 'La salida de este estudiante ya fue registrada hoy.',
+          estudiante: estudiante
+        });
+      }
+
+      // Buscar si el estudiante ya tiene fila de ingreso registrada hoy (desde el final hacia arriba)
+      let filaEncontrada = -1;
+      let horaIngreso = '--:--';
+      let estadoIngreso = 'Asistió';
+
+      if (ultFilaR > 1) {
+        const valores = hoja.getRange(2, 1, ultFilaR - 1, ultColR).getDisplayValues();
+        for (let i = valores.length - 1; i >= 0; i--) {
+          const fFila = String(valores[i][0] || '').replace(/['"]/g, '').trim();
+          const dFila = String(valores[i][2] || '').trim();
+          if (fFila === fecha && dFila === dni) {
+            filaEncontrada = i + 2; // +2 por encabezado y 1-based index
+            horaIngreso = valores[i][1] || '--:--';
+            estadoIngreso = valores[i][4] || 'Asistió';
+            break;
+          }
+        }
+      }
+
+      if (filaEncontrada !== -1) {
+        // Columna I (columna 9) para Hora_Salida
+        hoja.getRange(filaEncontrada, 9).setValue(hora);
+        SpreadsheetApp.flush();
+      } else {
+        // Si no escaneó ingreso en la mañana, registrarlo con salida
+        hoja.appendRow(["'" + fecha, '--:--', dni, estudiante.nombre, 'Asistió', '', '', '', hora]);
+        SpreadsheetApp.flush();
+      }
+
+      SCRIPT_PROPERTIES.setProperty(propertyKeySalida, hora);
+
+      return jsonResponse({
+        success: true,
+        tipo: 'salida',
+        message: '👋 Salida registrada correctamente',
+        estudiante,
+        asistencia: { fecha, hora: horaIngreso, horaSalida: hora, estado: estadoIngreso }
+      });
+    }
+
+    // --- REGISTRO DE ENTRADA ---
+    const propertyKeyEntrada = 'asistencia_' + dni + '_' + fechaKey;
+    if (SCRIPT_PROPERTIES.getProperty(propertyKeyEntrada)) {
+      return jsonResponse({
+        success: false,
+        duplicate: true,
+        tipo: 'entrada',
+        message: 'La entrada para este estudiante ya fue registrada hoy.',
+        estudiante: estudiante
+      });
+    }
+
+    const estado = calcularEstado(ahora, estudiante.nivel);
+    hoja.appendRow(["'" + fecha, hora, dni, estudiante.nombre, estado, '', '', '', '--:--']);
     SpreadsheetApp.flush();
 
-    SCRIPT_PROPERTIES.setProperty(propertyKey, 'registrado');
+    SCRIPT_PROPERTIES.setProperty(propertyKeyEntrada, 'registrado');
 
     let whatsappEnviado = false;
     if (estudiante.celular && META_API_TOKEN !== 'PEGA_AQUI_TU_TOKEN_DE_ACCESO_TEMPORAL') {
@@ -348,9 +406,11 @@ function obtenerHistorialPadre(dni, estudiante) {
           }
         }
 
+        const horaSalida = (fila[8] && String(fila[8]).trim() !== '' && String(fila[8]).trim() !== 'null') ? String(fila[8]).trim() : '--:--';
         historial.push({
           fecha: fecha,
           hora: hora,
+          horaSalida: horaSalida,
           estado: estado,
           motivo: motivo
         });
@@ -447,10 +507,12 @@ function obtenerDashboard(meses) {
       const dni = String(datos[i][2]).trim();
       const estado = String(datos[i][4]);
       
+      const horaSalidaStr = (datos[i][8] && String(datos[i][8]).trim() !== '' && String(datos[i][8]).trim() !== 'null') ? String(datos[i][8]).trim() : '--:--';
       registros.push({
         fecha: fechaStr,
         timestamp: fechaRegistro.getTime(),
         hora: horaStr,
+        horaSalida: horaSalidaStr,
         dni: dni,
         nombre: datos[i][3],
         estado: estado
@@ -477,6 +539,7 @@ function obtenerDashboard(meses) {
             fecha: fechaStr,
             timestamp: timestamp,
             hora: '--:--',
+            horaSalida: '--:--',
             dni: est.dni,
             nombre: est.nombre,
             estado: 'Justificado'
@@ -487,6 +550,7 @@ function obtenerDashboard(meses) {
             fecha: fechaStr,
             timestamp: timestamp,
             hora: '--:--',
+            horaSalida: '--:--',
             dni: est.dni,
             nombre: est.nombre,
             estado: 'Falta'

@@ -73,13 +73,13 @@ const request = async (url, options={}) => {
   return data;
 };
 
-export const registrarAsistencia = dni => request(GAS_URL, {
+export const registrarAsistencia = (dni, tipo = 'entrada') => request(GAS_URL, {
   method: 'POST',
   headers: { 'Content-Type': 'text/plain' },
-  body: JSON.stringify({ action: 'registrar', dni: dni })
+  body: JSON.stringify({ action: 'registrar', dni: dni, tipo: tipo })
 });
 
-// Dashboard Consolidado (GAS + GViz en tiempo real para evitar inconsistencias de formato)
+// Dashboard Consolidado (GAS + GViz en tiempo real para trazabilidad de Entrada y Salida)
 export const obtenerDashboard = async (meses = 1) => {
   try {
     const gvizUrl = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=Registro_Diario`;
@@ -93,6 +93,7 @@ export const obtenerDashboard = async (meses = 1) => {
     const registrosBase = dashRes && Array.isArray(dashRes.registros) ? [...dashRes.registros] : [];
     registrosBase.forEach(r => {
       if (r.fecha) r.fecha = normalizarFecha(r.fecha);
+      if (!r.horaSalida) r.horaSalida = '--:--';
     });
 
     const registrosPorFechaDni = new Set();
@@ -105,6 +106,7 @@ export const obtenerDashboard = async (meses = 1) => {
     if (gvizText) {
       const lines = gvizText.split('\n').filter(l => l.trim().length > 0);
       const gvizPorFecha = {};
+      const gvizMapSalida = {}; // Map fecha_dni -> horaSalida
 
       for (let i = 1; i < lines.length; i++) {
         const parts = parseCSVLine(lines[i]);
@@ -113,11 +115,24 @@ export const obtenerDashboard = async (meses = 1) => {
         const d = parts[2] ? parts[2].replace(/^"|"$/g, '').trim() : '';
         const nom = parts[3] ? parts[3].replace(/^"|"$/g, '').trim() : '';
         const est = parts[4] ? parts[4].replace(/^"|"$/g, '').trim() : 'Asistió';
+        const hSalida = parts[8] && parts[8] !== 'null' && parts[8].trim() !== '' ? parts[8].replace(/^"|"$/g, '').trim() : '--:--';
+        
         if (f && d) {
           if (!gvizPorFecha[f]) gvizPorFecha[f] = [];
-          gvizPorFecha[f].push({ fecha: f, hora: h, dni: d, nombre: nom, estado: est });
+          gvizPorFecha[f].push({ fecha: f, hora: h, horaSalida: hSalida, dni: d, nombre: nom, estado: est });
+          if (hSalida !== '--:--') {
+            gvizMapSalida[`${f}_${d}`] = hSalida;
+          }
         }
       }
+
+      // Si hay registros en base que no tenían horaSalida pero en GViz ya se registró la salida, actualizarla
+      registrosBase.forEach(r => {
+        const key = `${r.fecha}_${r.dni}`;
+        if (gvizMapSalida[key] && (!r.horaSalida || r.horaSalida === '--:--')) {
+          r.horaSalida = gvizMapSalida[key];
+        }
+      });
 
       const estudiantesLista = estRes && Array.isArray(estRes.estudiantes) ? estRes.estudiantes : [];
 
@@ -131,6 +146,7 @@ export const obtenerDashboard = async (meses = 1) => {
               fecha: e.fecha,
               timestamp: Date.now(),
               hora: e.hora,
+              horaSalida: e.horaSalida || '--:--',
               dni: e.dni,
               nombre: e.nombre,
               estado: e.estado
@@ -145,6 +161,7 @@ export const obtenerDashboard = async (meses = 1) => {
                 fecha: fKey,
                 timestamp: Date.now(),
                 hora: '--:--',
+                horaSalida: '--:--',
                 dni: dniVal,
                 nombre: est.nombre,
                 estado: 'Falta'
@@ -191,7 +208,45 @@ export const justificarFalta = (dni, fecha, motivo) => request(GAS_URL, {
 
 export const obtenerEstudiantes = () => request(`${GAS_URL}?action=estudiantes`);
 
-export const obtenerHistorialPadre = dni => request(`${GAS_URL}?action=consulta_padre&dni=${dni}`);
+export const obtenerHistorialPadre = async (dni) => {
+  try {
+    const res = await request(`${GAS_URL}?action=consulta_padre&dni=${dni}`);
+    // Enriquecer en tiempo real con GViz para horaSalida
+    try {
+      const gvizUrl = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=Registro_Diario`;
+      const gRes = await fetch(gvizUrl);
+      if (gRes.ok) {
+        const text = await gRes.text();
+        const lines = text.split('\n').filter(l => l.trim().length > 0);
+        const mapSalida = {};
+        for (let i = 1; i < lines.length; i++) {
+          const parts = parseCSVLine(lines[i]);
+          const f = parts[0] ? normalizarFecha(parts[0]) : '';
+          const d = parts[2] ? parts[2].replace(/^"|"$/g, '').trim() : '';
+          const hSalida = parts[8] && parts[8] !== 'null' && parts[8].trim() !== '' ? parts[8].replace(/^"|"$/g, '').trim() : '--:--';
+          if (f && d === String(dni).trim() && hSalida !== '--:--') {
+            mapSalida[f] = hSalida;
+          }
+        }
+        if (res && res.success && Array.isArray(res.historial)) {
+          res.historial.forEach(h => {
+            const fNorm = normalizarFecha(h.fecha);
+            if (mapSalida[fNorm]) {
+              h.horaSalida = mapSalida[fNorm];
+            } else if (!h.horaSalida) {
+              h.horaSalida = '--:--';
+            }
+          });
+        }
+      }
+    } catch (e) {
+      // Continuar si falla GViz
+    }
+    return res;
+  } catch (err) {
+    throw err;
+  }
+};
 
 // --- Registro Manual ---
 export const obtenerGrados = () => request(`${GAS_URL}?action=grados_disponibles`);

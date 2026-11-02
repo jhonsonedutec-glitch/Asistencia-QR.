@@ -111,7 +111,7 @@ export default function RegistroManual() {
     return Array.from(set).sort();
   }, [estudiantes]);
 
-  // Mapa de estado de cada estudiante para la fecha seleccionada
+  // Mapa de estado de cada estudiante para la fecha seleccionada (incluyendo trazabilidad de entrada y salida)
   const estadosPorDni = useMemo(() => {
     const map = {};
     if (dashboardData && Array.isArray(dashboardData.registros)) {
@@ -121,14 +121,16 @@ export default function RegistroManual() {
           if (r.dni && /^\d{8}$/.test(String(r.dni).trim())) {
             map[String(r.dni).trim()] = {
               estado: r.estado,
-              hora: r.hora
+              hora: r.hora,
+              horaSalida: r.horaSalida || '--:--'
             };
           }
           if (r.nombre) {
             const nomKey = String(r.nombre).toLowerCase().replace(/[,.\s]+/g, ' ').trim();
             map['nom_' + nomKey] = {
               estado: r.estado,
-              hora: r.hora
+              hora: r.hora,
+              horaSalida: r.horaSalida || '--:--'
             };
           }
         }
@@ -147,11 +149,13 @@ export default function RegistroManual() {
       // Si el día está configurado como No Laborable en el Calendario, el estado por defecto es "No Laborable"
       let estadoActual = esDiaNoLaborable ? 'No Laborable' : 'Falta';
       let hora = '--:--';
+      let horaSalida = '--:--';
       let registradoPreviamente = false;
 
       if (registroExistente) {
         estadoActual = registroExistente.estado;
         hora = registroExistente.hora;
+        horaSalida = registroExistente.horaSalida || '--:--';
         registradoPreviamente = true;
       }
 
@@ -166,6 +170,7 @@ export default function RegistroManual() {
         gradoCompleto,
         estadoActual,
         hora,
+        horaSalida,
         registradoPreviamente,
         conCambio: Boolean(cambioLocal)
       };
@@ -301,7 +306,7 @@ export default function RegistroManual() {
         <div>
           <span className="text-xs font-bold uppercase tracking-widest text-blue-400">Control de Asistencia</span>
           <h1 className="mt-1 text-3xl font-black text-white md:text-4xl">Registro de Faltas y Asistencia</h1>
-          <p className="mt-1 text-slate-400">Busca alumnos y actualiza su estado (Asistió, Tardanza, Falta, Justificado).</p>
+          <p className="mt-1 text-slate-400">Busca alumnos, monitorea permanencia y actualiza su estado.</p>
         </div>
         <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2.5">
           {esDiaNoLaborable ? (
@@ -349,115 +354,73 @@ export default function RegistroManual() {
                 </p>
               </div>
             </div>
-            <div className="shrink-0 self-end sm:self-center">
-              <span className="inline-flex items-center gap-1.5 rounded-xl bg-slate-800/90 px-3.5 py-2 text-xs font-semibold text-slate-300 border border-slate-700/80 shadow">
-                <span className="h-2 w-2 rounded-full bg-amber-400"></span>
-                Estado: Faltas Desactivadas
-              </span>
-            </div>
           </div>
         </div>
       )}
 
-      {/* Tarjetas de métricas rápidas */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+      {/* Tarjetas Resumen de Métricas */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
         {esDiaNoLaborable ? (
-          <>
-            <div 
-              onClick={() => setEstadoFiltro('NO_LABORABLE')}
-              className={`cursor-pointer rounded-2xl border p-4 transition-all ${
-                estadoFiltro === 'NO_LABORABLE' 
-                  ? 'bg-slate-700/40 border-amber-500 ring-2 ring-amber-500/50' 
-                  : 'bg-slate-900/60 border-slate-800 hover:border-amber-700/50'
-              }`}
-            >
-              <div className="text-xs font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
-                <span>🏖️</span> No Laborables
-              </div>
-              <div className="text-3xl font-black text-white mt-1">{conteos.noLaborables}</div>
-            </div>
-            <div 
-              onClick={() => setEstadoFiltro('FALTA')}
-              className={`cursor-pointer rounded-2xl border p-4 transition-all ${
-                estadoFiltro === 'FALTA' 
-                  ? 'bg-red-500/20 border-red-500 ring-2 ring-red-500/50' 
-                  : 'bg-slate-900/60 border-slate-800 hover:border-red-900/50'
-              }`}
-            >
-              <div className="text-xs font-bold text-red-400 uppercase tracking-wider">Faltas</div>
-              <div className="text-3xl font-black text-white mt-1">{conteos.faltas}</div>
-            </div>
-            <div 
-              onClick={() => setEstadoFiltro('ASISTIO')}
-              className={`cursor-pointer rounded-2xl border p-4 transition-all ${
-                estadoFiltro === 'ASISTIO' 
-                  ? 'bg-emerald-500/20 border-emerald-500 ring-2 ring-emerald-500/50' 
-                  : 'bg-slate-900/60 border-slate-800 hover:border-emerald-900/50'
-              }`}
-            >
-              <div className="text-xs font-bold text-emerald-400 uppercase tracking-wider">Asistieron</div>
-              <div className="text-3xl font-black text-white mt-1">{conteos.asistencias}</div>
-            </div>
-            <div 
-              onClick={() => setEstadoFiltro('JUSTIFICADO')}
-              className={`cursor-pointer rounded-2xl border p-4 transition-all ${
-                estadoFiltro === 'JUSTIFICADO' 
-                  ? 'bg-purple-500/20 border-purple-500 ring-2 ring-purple-500/50' 
-                  : 'bg-slate-900/60 border-slate-800 hover:border-purple-900/50'
-              }`}
-            >
-              <div className="text-xs font-bold text-purple-400 uppercase tracking-wider">Justificados</div>
-              <div className="text-3xl font-black text-white mt-1">{conteos.justificados}</div>
-            </div>
-          </>
+          <div 
+            onClick={() => setEstadoFiltro('NO_LABORABLE')}
+            className={`cursor-pointer rounded-2xl border p-4 transition-all col-span-2 md:col-span-1 ${
+              estadoFiltro === 'NO_LABORABLE' 
+                ? 'bg-amber-500/20 border-amber-500 ring-2 ring-amber-500/50' 
+                : 'bg-slate-900/60 border-slate-800 hover:border-amber-900/50'
+            }`}
+          >
+            <div className="text-xs font-bold text-amber-400 uppercase tracking-wider">No Laborables</div>
+            <div className="text-3xl font-black text-white mt-1">{conteos.noLaborables}</div>
+          </div>
         ) : (
-          <>
-            <div 
-              onClick={() => setEstadoFiltro('FALTA')}
-              className={`cursor-pointer rounded-2xl border p-4 transition-all ${
-                estadoFiltro === 'FALTA' 
-                  ? 'bg-red-500/20 border-red-500 ring-2 ring-red-500/50' 
-                  : 'bg-slate-900/60 border-slate-800 hover:border-red-900/50'
-              }`}
-            >
-              <div className="text-xs font-bold text-red-400 uppercase tracking-wider">Faltas</div>
-              <div className="text-3xl font-black text-white mt-1">{conteos.faltas}</div>
-            </div>
-            <div 
-              onClick={() => setEstadoFiltro('ASISTIO')}
-              className={`cursor-pointer rounded-2xl border p-4 transition-all ${
-                estadoFiltro === 'ASISTIO' 
-                  ? 'bg-emerald-500/20 border-emerald-500 ring-2 ring-emerald-500/50' 
-                  : 'bg-slate-900/60 border-slate-800 hover:border-emerald-900/50'
-              }`}
-            >
-              <div className="text-xs font-bold text-emerald-400 uppercase tracking-wider">Asistieron</div>
-              <div className="text-3xl font-black text-white mt-1">{conteos.asistencias}</div>
-            </div>
-            <div 
-              onClick={() => setEstadoFiltro('TARDANZA')}
-              className={`cursor-pointer rounded-2xl border p-4 transition-all ${
-                estadoFiltro === 'TARDANZA' 
-                  ? 'bg-amber-500/20 border-amber-500 ring-2 ring-amber-500/50' 
-                  : 'bg-slate-900/60 border-slate-800 hover:border-amber-900/50'
-              }`}
-            >
-              <div className="text-xs font-bold text-amber-400 uppercase tracking-wider">Tardanzas</div>
-              <div className="text-3xl font-black text-white mt-1">{conteos.tardanzas}</div>
-            </div>
-            <div 
-              onClick={() => setEstadoFiltro('JUSTIFICADO')}
-              className={`cursor-pointer rounded-2xl border p-4 transition-all ${
-                estadoFiltro === 'JUSTIFICADO' 
-                  ? 'bg-purple-500/20 border-purple-500 ring-2 ring-purple-500/50' 
-                  : 'bg-slate-900/60 border-slate-800 hover:border-purple-900/50'
-              }`}
-            >
-              <div className="text-xs font-bold text-purple-400 uppercase tracking-wider">Justificados</div>
-              <div className="text-3xl font-black text-white mt-1">{conteos.justificados}</div>
-            </div>
-          </>
+          <div 
+            onClick={() => setEstadoFiltro('FALTA')}
+            className={`cursor-pointer rounded-2xl border p-4 transition-all ${
+              estadoFiltro === 'FALTA' 
+                ? 'bg-red-500/20 border-red-500 ring-2 ring-red-500/50' 
+                : 'bg-slate-900/60 border-slate-800 hover:border-red-900/50'
+            }`}
+          >
+            <div className="text-xs font-bold text-red-400 uppercase tracking-wider">Faltas</div>
+            <div className="text-3xl font-black text-white mt-1">{conteos.faltas}</div>
+          </div>
         )}
+
+        <div 
+          onClick={() => setEstadoFiltro('ASISTIO')}
+          className={`cursor-pointer rounded-2xl border p-4 transition-all ${
+            estadoFiltro === 'ASISTIO' 
+              ? 'bg-emerald-500/20 border-emerald-500 ring-2 ring-emerald-500/50' 
+              : 'bg-slate-900/60 border-slate-800 hover:border-emerald-900/50'
+          }`}
+        >
+          <div className="text-xs font-bold text-emerald-400 uppercase tracking-wider">Asistieron</div>
+          <div className="text-3xl font-black text-white mt-1">{conteos.asistencias}</div>
+        </div>
+
+        <div 
+          onClick={() => setEstadoFiltro('TARDANZA')}
+          className={`cursor-pointer rounded-2xl border p-4 transition-all ${
+            estadoFiltro === 'TARDANZA' 
+              ? 'bg-amber-500/20 border-amber-500 ring-2 ring-amber-500/50' 
+              : 'bg-slate-900/60 border-slate-800 hover:border-amber-900/50'
+          }`}
+        >
+          <div className="text-xs font-bold text-amber-400 uppercase tracking-wider">Tardanzas</div>
+          <div className="text-3xl font-black text-white mt-1">{conteos.tardanzas}</div>
+        </div>
+
+        <div 
+          onClick={() => setEstadoFiltro('JUSTIFICADO')}
+          className={`cursor-pointer rounded-2xl border p-4 transition-all ${
+            estadoFiltro === 'JUSTIFICADO' 
+              ? 'bg-purple-500/20 border-purple-500 ring-2 ring-purple-500/50' 
+              : 'bg-slate-900/60 border-slate-800 hover:border-purple-900/50'
+          }`}
+        >
+          <div className="text-xs font-bold text-purple-400 uppercase tracking-wider">Justificados</div>
+          <div className="text-3xl font-black text-white mt-1">{conteos.justificados}</div>
+        </div>
       </div>
 
       {/* Barra de Filtros Inteligentes */}
@@ -588,7 +551,7 @@ export default function RegistroManual() {
                 <tr>
                   <th className="px-4 py-3.5 font-semibold w-10">#</th>
                   <th className="px-4 py-3.5 font-semibold">DNI</th>
-                  <th className="px-4 py-3.5 font-semibold">Estudiante</th>
+                  <th className="px-4 py-3.5 font-semibold">Estudiante / Horarios</th>
                   <th className="px-4 py-3.5 font-semibold">Grado</th>
                   <th className="px-4 py-3.5 font-semibold">Estado</th>
                   <th className="px-4 py-3.5 font-semibold text-right">Cambiar a (Submenú)</th>
@@ -617,9 +580,16 @@ export default function RegistroManual() {
                       </td>
                       <td className="px-4 py-3">
                         <div className="font-bold text-white">{item.nombre}</div>
-                        {item.hora && item.hora !== '--:--' && (
-                          <div className="text-xs text-slate-500">Hora: {item.hora}</div>
-                        )}
+                        <div className="flex items-center gap-2 mt-0.5 text-xs font-mono">
+                          {item.hora && item.hora !== '--:--' && (
+                            <span className="text-emerald-400 font-semibold">🕒 Ent: {item.hora}</span>
+                          )}
+                          {item.horaSalida && item.horaSalida !== '--:--' ? (
+                            <span className="text-cyan-400 font-bold">🚪 Sal: {item.horaSalida}</span>
+                          ) : item.hora && item.hora !== '--:--' && (item.estadoActual.includes('Asisti') || item.estadoActual === 'Tardanza') ? (
+                            <span className="text-amber-400/80 text-[11px] bg-amber-500/10 px-1.5 py-0.5 rounded-full border border-amber-500/20 font-sans">🏫 En plantel</span>
+                          ) : null}
+                        </div>
                       </td>
                       <td className="px-4 py-3 text-xs text-slate-400 font-medium">
                         {item.gradoCompleto}

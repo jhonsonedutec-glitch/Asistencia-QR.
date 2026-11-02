@@ -1,35 +1,35 @@
-import {useEffect,useState,useMemo} from 'react';
-import {obtenerDashboard, getFechaHoyLocal, normalizarFecha} from '../services/api';
-import {ResponsiveContainer,BarChart,Bar,XAxis,YAxis,Tooltip,Cell,CartesianGrid} from 'recharts';
+import { useEffect, useState, useMemo } from 'react';
+import { obtenerDashboard, getFechaHoyLocal, normalizarFecha } from '../services/api';
+import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Cell, CartesianGrid } from 'recharts';
 
-export default function Dashboard(){
-  const [months,setMonths]=useState(1);
+export default function Dashboard() {
+  const [months, setMonths] = useState(1);
   const [selectedDate, setSelectedDate] = useState(() => getFechaHoyLocal());
-  const [data,setData]=useState(null);
-  const [error,setError]=useState('');
+  const [data, setData] = useState(null);
+  const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState(null);
 
-  useEffect(()=>{
+  useEffect(() => {
     setLoading(true);
     obtenerDashboard(months).then(res => {
       setData(res);
       setLoading(false);
-    }).catch(e=>{
+    }).catch(e => {
       setError(e.message);
       setLoading(false);
-    })
-  },[months]);
+    });
+  }, [months]);
 
-  // Local filtering based on selected date
+  // Filtrado local reactivo por fecha seleccionada
   const filteredData = useMemo(() => {
     if (!data) return null;
     let registros = data.registros || [];
     
     if (selectedDate) {
-      // selectedDate comes as YYYY-MM-DD
+      // selectedDate viene como YYYY-MM-DD
       const [y, m, d] = selectedDate.split('-');
-      const formattedDate = `${d.padStart(2, '0')}/${m.padStart(2, '0')}/${y}`; // Matches 'dd/MM/yyyy'
+      const formattedDate = `${d.padStart(2, '0')}/${m.padStart(2, '0')}/${y}`;
       registros = registros.filter(r => r.fecha === formattedDate || normalizarFecha(r.fecha) === formattedDate);
     }
     
@@ -37,13 +37,19 @@ export default function Dashboard(){
     const tardanzas = registros.filter(r => r.estado === 'Tardanza').length;
     const faltas = registros.filter(r => r.estado === 'Falta').length;
     const justificados = registros.filter(r => r.estado === 'Justificado').length;
+    
+    // Trazabilidad de permanencia escolar
+    const asistieronPresentes = registros.filter(r => (r.estado.includes('Asisti') || r.estado === 'Tardanza') && r.hora && r.hora !== '--:--');
+    const salieron = asistieronPresentes.filter(r => r.horaSalida && r.horaSalida !== '--:--').length;
+    const enPlantel = asistieronPresentes.length - salieron;
+
     const total = registros.length;
-    // Justificados count positively towards attendance percentage
+    // Justificados cuentan positivamente para el % global
     const porcentaje = total > 0 ? Math.round(((asistencias + tardanzas + justificados) / total) * 100) : 0;
 
     return {
       registros,
-      metricas: { total, asistencias, tardanzas, faltas, justificados, porcentaje }
+      metricas: { total, asistencias, tardanzas, faltas, justificados, porcentaje, enPlantel, salieron }
     };
   }, [data, selectedDate]);
 
@@ -69,28 +75,28 @@ export default function Dashboard(){
 
   const downloadCSV = () => {
     if (!filteredData || !filteredData.registros.length) return;
-    const headers = ['Fecha,Hora,DNI,Estudiante,Estado'];
-    const rows = filteredData.registros.map(r => `${r.fecha},${r.hora},${r.dni},"${r.nombre}",${r.estado}`);
+    const headers = ['Fecha,Hora_Ingreso,Hora_Salida,DNI,Estudiante,Estado'];
+    const rows = filteredData.registros.map(r => `${r.fecha},${r.hora || '--:--'},${r.horaSalida || '--:--'},${r.dni},"${r.nombre}",${r.estado}`);
     const csvContent = "\uFEFF" + headers.concat(rows).join("\n");
     
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.setAttribute("href", url);
-    link.setAttribute("download", `asistencia_${selectedDate || 'historico'}.csv`);
+    link.setAttribute("download", `asistencia_trazabilidad_${selectedDate || 'historico'}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
   };
 
-  const m = filteredData?.metricas || {total:0, asistencias:0, tardanzas:0, faltas:0, justificados:0, porcentaje:0};
+  const m = filteredData?.metricas || { total: 0, asistencias: 0, tardanzas: 0, faltas: 0, justificados: 0, porcentaje: 0, enPlantel: 0, salieron: 0 };
   
   const chart = [
-    {name:'Asistió', total: m.asistencias, color: '#10b981'}, // emerald-500
-    {name:'Tardanza', total: m.tardanzas, color: '#f59e0b'}, // amber-500
-    {name:'Falta', total: m.faltas, color: '#ef4444'}, // red-500
-    {name:'Justif.', total: m.justificados, color: '#8b5cf6'} // violet-500
+    { name: 'Asistió', total: m.asistencias, color: '#10b981' }, // emerald-500
+    { name: 'Tardanza', total: m.tardanzas, color: '#f59e0b' }, // amber-500
+    { name: 'Falta', total: m.faltas, color: '#ef4444' }, // red-500
+    { name: 'Justif.', total: m.justificados, color: '#8b5cf6' } // violet-500
   ];
 
   return (
@@ -100,15 +106,16 @@ export default function Dashboard(){
         <div>
           <span className="text-xs font-bold uppercase tracking-widest text-blue-400">Dirección</span>
           <h1 className="mt-1 text-3xl font-black text-white md:text-4xl shadow-sm">Dashboard Ejecutivo</h1>
-          <p className="mt-2 text-slate-400">Análisis y resumen de asistencia estudiantil.</p>
+          <p className="mt-2 text-slate-400">Análisis y trazabilidad de asistencia, permanencia y salidas.</p>
         </div>
         
         <div className="flex flex-col sm:flex-row gap-3">
           <button 
             onClick={downloadCSV}
-            className="rounded-xl border border-blue-600 bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-inner hover:bg-blue-700 transition self-end sm:self-auto mb-1"
+            className="rounded-xl border border-blue-600 bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-inner hover:bg-blue-700 transition self-end sm:self-auto mb-1 flex items-center gap-2"
           >
-            Descargar CSV
+            <span>📥</span>
+            <span>Descargar CSV</span>
           </button>
           <div className="flex flex-col gap-1">
             <div className="flex items-center justify-between">
@@ -172,6 +179,35 @@ export default function Dashboard(){
         </div>
       </section>
 
+      {/* Trazabilidad en Tiempo Real: En Plantel vs. Ya Salieron */}
+      <section className="mt-4 grid gap-4 grid-cols-1 sm:grid-cols-2">
+        <div className="rounded-2xl border border-cyan-500/20 bg-gradient-to-r from-cyan-950/30 to-slate-900/50 p-4 shadow-lg flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-cyan-500/15 text-2xl border border-cyan-500/30">
+              🏫
+            </div>
+            <div>
+              <p className="text-xs font-bold text-cyan-400 uppercase tracking-wider">Estudiantes en Plantel</p>
+              <p className="text-xs text-slate-400">Ingresaron y aún no registran salida</p>
+            </div>
+          </div>
+          <div className="text-3xl font-black text-white">{m.enPlantel}</div>
+        </div>
+
+        <div className="rounded-2xl border border-indigo-500/20 bg-gradient-to-r from-indigo-950/30 to-slate-900/50 p-4 shadow-lg flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-500/15 text-2xl border border-indigo-500/30">
+              🚪
+            </div>
+            <div>
+              <p className="text-xs font-bold text-indigo-400 uppercase tracking-wider">Salidas Registradas</p>
+              <p className="text-xs text-slate-400">Alumnos retirados hoy con QR</p>
+            </div>
+          </div>
+          <div className="text-3xl font-black text-white">{m.salieron}</div>
+        </div>
+      </section>
+
       {/* Charts & Table */}
       <section className="mt-8 grid gap-6 lg:grid-cols-2">
         
@@ -199,20 +235,23 @@ export default function Dashboard(){
           </div>
         </div>
 
-        {/* Table */}
+        {/* Table con Entrada y Salida */}
         <div className="overflow-hidden rounded-3xl border border-slate-800 bg-slate-900/50 shadow-xl backdrop-blur-sm flex flex-col h-full lg:max-h-[380px]">
-          <div className="border-b border-slate-800 p-6 shrink-0">
-            <h2 className="font-bold text-white text-lg">Registros Recientes {selectedDate && '(Filtrados)'}</h2>
-            <p className="text-xs text-slate-400 mt-1">Haz clic en un estudiante para ver su historial.</p>
+          <div className="border-b border-slate-800 p-6 shrink-0 flex items-center justify-between">
+            <div>
+              <h2 className="font-bold text-white text-lg">Registros Recientes {selectedDate && '(Filtrados)'}</h2>
+              <p className="text-xs text-slate-400 mt-1">Haz clic en un estudiante para ver su historial completo.</p>
+            </div>
           </div>
           <div className="overflow-auto flex-1 custom-scrollbar">
             <table className="w-full text-left text-sm whitespace-nowrap relative">
               <thead className="bg-slate-800/80 text-slate-400 sticky top-0 z-10 backdrop-blur-sm">
                 <tr>
-                  <th className="px-6 py-4 font-semibold">Fecha</th>
-                  <th className="px-6 py-4 font-semibold">Hora</th>
-                  <th className="px-6 py-4 font-semibold">Estudiante</th>
-                  <th className="px-6 py-4 font-semibold">Estado</th>
+                  <th className="px-5 py-3.5 font-semibold">Fecha</th>
+                  <th className="px-4 py-3.5 font-semibold">Entrada</th>
+                  <th className="px-4 py-3.5 font-semibold">Salida</th>
+                  <th className="px-5 py-3.5 font-semibold">Estudiante</th>
+                  <th className="px-5 py-3.5 font-semibold">Estado</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/50">
@@ -222,10 +261,25 @@ export default function Dashboard(){
                     onClick={() => setSelectedStudent(r.dni)}
                     className="transition-colors hover:bg-slate-800/60 text-slate-300 cursor-pointer"
                   >
-                    <td className="px-6 py-4">{r.fecha}</td>
-                    <td className="px-6 py-4 text-slate-400">{r.hora}</td>
-                    <td className="px-6 py-4 font-medium text-blue-400 hover:text-blue-300 transition-colors">{r.nombre}</td>
-                    <td className="px-6 py-4">
+                    <td className="px-5 py-3.5">{r.fecha}</td>
+                    <td className="px-4 py-3.5 text-slate-300 font-mono text-xs">
+                      {r.hora && r.hora !== '--:--' ? (
+                        <span className="text-emerald-400 font-semibold">{r.hora}</span>
+                      ) : (
+                        <span className="text-slate-500">--:--</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3.5 text-slate-300 font-mono text-xs">
+                      {r.horaSalida && r.horaSalida !== '--:--' ? (
+                        <span className="text-cyan-400 font-bold">{r.horaSalida}</span>
+                      ) : r.hora && r.hora !== '--:--' && (r.estado.includes('Asisti') || r.estado === 'Tardanza') ? (
+                        <span className="text-amber-400/80 text-[11px] bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20 font-sans">En plantel</span>
+                      ) : (
+                        <span className="text-slate-500">--:--</span>
+                      )}
+                    </td>
+                    <td className="px-5 py-3.5 font-medium text-blue-400 hover:text-blue-300 transition-colors">{r.nombre}</td>
+                    <td className="px-5 py-3.5">
                       <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${
                         r.estado.includes('Asisti') ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 
                         r.estado === 'Tardanza' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' : 
@@ -239,14 +293,14 @@ export default function Dashboard(){
                 ))}
                 {filteredData?.registros?.length > 100 && (
                   <tr>
-                    <td colSpan="4" className="px-6 py-4 text-center text-xs text-slate-500 bg-slate-900/30">
+                    <td colSpan="5" className="px-6 py-4 text-center text-xs text-slate-500 bg-slate-900/30">
                       Mostrando los 100 registros más recientes. Descarga el CSV para ver los {filteredData.registros.length} registros completos.
                     </td>
                   </tr>
                 )}
                 {(!filteredData?.registros || filteredData.registros.length === 0) && (
                   <tr>
-                    <td colSpan="4" className="px-6 py-10 text-center text-slate-500">
+                    <td colSpan="5" className="px-6 py-10 text-center text-slate-500">
                       No hay registros para este periodo.
                     </td>
                   </tr>
@@ -295,13 +349,14 @@ export default function Dashboard(){
                 </div>
               </div>
 
-              <h4 className="font-bold text-slate-300 mb-3">Detalle de registros</h4>
+              <h4 className="font-bold text-slate-300 mb-3">Trazabilidad de Ingresos y Salidas</h4>
               <div className="rounded-2xl border border-slate-700 overflow-hidden">
                 <table className="w-full text-left text-sm whitespace-nowrap">
                   <thead className="bg-slate-800 text-slate-400">
                     <tr>
                       <th className="px-4 py-3 font-semibold">Fecha</th>
-                      <th className="px-4 py-3 font-semibold">Hora</th>
+                      <th className="px-4 py-3 font-semibold">Entrada</th>
+                      <th className="px-4 py-3 font-semibold">Salida</th>
                       <th className="px-4 py-3 font-semibold">Estado</th>
                     </tr>
                   </thead>
@@ -309,7 +364,14 @@ export default function Dashboard(){
                     {studentHistory.regs.map((r, i) => (
                       <tr key={i} className="bg-slate-900/50 hover:bg-slate-800/50 text-slate-300">
                         <td className="px-4 py-3">{r.fecha}</td>
-                        <td className="px-4 py-3 text-slate-400">{r.hora}</td>
+                        <td className="px-4 py-3 text-emerald-400 font-mono text-xs">{r.hora || '--:--'}</td>
+                        <td className="px-4 py-3 font-mono text-xs">
+                          {r.horaSalida && r.horaSalida !== '--:--' ? (
+                            <span className="text-cyan-400 font-bold">{r.horaSalida}</span>
+                          ) : (
+                            <span className="text-slate-500">--:--</span>
+                          )}
+                        </td>
                         <td className="px-4 py-3">
                           <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${
                             r.estado.includes('Asisti') ? 'text-emerald-400' : 
