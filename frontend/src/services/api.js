@@ -309,7 +309,46 @@ export const obtenerDiasNoLaborables = async () => {
 
 
 // --- Módulo de Docentes y Tareas Escolares ---
-export const verificarDocente = (dni) => request(`${GAS_URL}?action=login_docente&dni=${dni}`);
+export const verificarDocente = async (dni) => {
+  try {
+    const res = await request(`${GAS_URL}?action=login_docente&dni=${dni}`).catch(() => null);
+    if (res && res.success && res.docente) {
+      return res;
+    }
+
+    // Fallback GViz en tiempo real directo a BD_Docentes
+    const gvizUrl = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=BD_Docentes`;
+    const gRes = await fetch(gvizUrl);
+    if (gRes.ok) {
+      const text = await gRes.text();
+      const lines = text.split('\n').filter(l => l.trim().length > 0);
+      for (let i = 1; i < lines.length; i++) {
+        const parts = parseCSVLine(lines[i]);
+        const dFila = parts[0] ? parts[0].replace(/^"|"$/g, '').trim() : '';
+        const nomFila = parts[1] ? parts[1].replace(/^"|"$/g, '').trim() : '';
+        const nivFila = parts[2] ? parts[2].replace(/^"|"$/g, '').trim() : '';
+        const telFila = parts[3] ? parts[3].replace(/^"|"$/g, '').trim() : '';
+        if (dFila === String(dni).trim()) {
+          return {
+            success: true,
+            docente: {
+              dni: dFila,
+              nombre: nomFila,
+              nivel: nivFila,
+              telefono: telFila,
+              estado: 'Activo'
+            }
+          };
+        }
+      }
+      return { success: false, message: 'DNI no encontrado en el padrón de docentes. Solicita tu registro en BD_Docentes.' };
+    }
+
+    return res || { success: false, message: 'No se pudo verificar el docente.' };
+  } catch (err) {
+    return { success: false, message: 'Error de conexión: ' + err.message };
+  }
+};
 
 export const obtenerTareas = async (grado = '', dniDocente = '') => {
   try {
