@@ -145,7 +145,7 @@ function doPost(e) {
     const estado = calcularEstado(ahora, estudiante.nivel);
 
     const hoja = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(HOJA_REGISTRO);
-    hoja.appendRow([fecha, hora, dni, estudiante.nombre, estado]);
+    hoja.appendRow(["'" + fecha, hora, dni, estudiante.nombre, estado]);
     SpreadsheetApp.flush();
 
     SCRIPT_PROPERTIES.setProperty(propertyKey, 'registrado');
@@ -310,7 +310,7 @@ function obtenerHistorialPadre(dni, estudiante) {
   const hojaRegistro = ss.getSheetByName(HOJA_REGISTRO);
   const ultFilaR = hojaRegistro.getLastRow();
   const ultColR = hojaRegistro.getLastColumn();
-  const registrosDatos = ultFilaR > 1 ? hojaRegistro.getRange(2, 1, ultFilaR - 1, ultColR).getValues() : [];
+  const registrosDatos = ultFilaR > 1 ? hojaRegistro.getRange(2, 1, ultFilaR - 1, ultColR).getDisplayValues() : [];
 
   const headers = hojaRegistro.getRange(1, 1, 1, ultColR).getValues()[0].map(h => String(h).trim().toLowerCase());
   const cDNI = headers.indexOf('dni');
@@ -414,7 +414,7 @@ function obtenerDashboard(meses) {
   const hojaR = ss.getSheetByName(HOJA_REGISTRO);
   const ultFilaR = hojaR.getLastRow();
   const ultColR = hojaR.getLastColumn();
-  const datos = ultFilaR > 0 && ultColR > 0 ? hojaR.getRange(1, 1, ultFilaR, ultColR).getValues() : [];
+  const datos = ultFilaR > 0 && ultColR > 0 ? hojaR.getRange(1, 1, ultFilaR, ultColR).getDisplayValues() : [];
   const fechaInicio = new Date();
   fechaInicio.setMonth(fechaInicio.getMonth() - meses);
   fechaInicio.setHours(0, 0, 0, 0);
@@ -530,7 +530,8 @@ function obtenerEstudiantes() {
 }
 
 function convertirFecha(fechaStr) {
-  const partes = String(fechaStr).split('/');
+  if (!fechaStr) return null;
+  const partes = String(fechaStr).replace(/['"]/g, '').trim().split('/');
   if (partes.length === 3) {
     return new Date(Number(partes[2]), Number(partes[1]) - 1, Number(partes[0]));
   }

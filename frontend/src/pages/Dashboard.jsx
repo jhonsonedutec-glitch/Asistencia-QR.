@@ -1,10 +1,10 @@
 import {useEffect,useState,useMemo} from 'react';
-import {obtenerDashboard} from '../services/api';
+import {obtenerDashboard, getFechaHoyLocal, normalizarFecha} from '../services/api';
 import {ResponsiveContainer,BarChart,Bar,XAxis,YAxis,Tooltip,Cell,CartesianGrid} from 'recharts';
 
 export default function Dashboard(){
   const [months,setMonths]=useState(1);
-  const [selectedDate, setSelectedDate] = useState('');
+  const [selectedDate, setSelectedDate] = useState(() => getFechaHoyLocal());
   const [data,setData]=useState(null);
   const [error,setError]=useState('');
   const [loading, setLoading] = useState(false);
@@ -29,11 +29,11 @@ export default function Dashboard(){
     if (selectedDate) {
       // selectedDate comes as YYYY-MM-DD
       const [y, m, d] = selectedDate.split('-');
-      const formattedDate = `${d}/${m}/${y}`; // Matches GAS 'dd/MM/yyyy'
-      registros = registros.filter(r => r.fecha === formattedDate);
+      const formattedDate = `${d.padStart(2, '0')}/${m.padStart(2, '0')}/${y}`; // Matches 'dd/MM/yyyy'
+      registros = registros.filter(r => r.fecha === formattedDate || normalizarFecha(r.fecha) === formattedDate);
     }
     
-    const asistencias = registros.filter(r => r.estado.includes('Asisti')).length;
+    const asistencias = registros.filter(r => r.estado && r.estado.includes('Asisti')).length;
     const tardanzas = registros.filter(r => r.estado === 'Tardanza').length;
     const faltas = registros.filter(r => r.estado === 'Falta').length;
     const justificados = registros.filter(r => r.estado === 'Justificado').length;
@@ -111,7 +111,18 @@ export default function Dashboard(){
             Descargar CSV
           </button>
           <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold text-slate-400 ml-1">Filtrar por Fecha</label>
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-semibold text-slate-400 ml-1">Filtrar por Fecha</label>
+              {selectedDate && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedDate('')}
+                  className="text-[11px] text-blue-400 hover:text-blue-300 font-semibold underline ml-2"
+                >
+                  Ver Todo
+                </button>
+              )}
+            </div>
             <input 
               type="date" 
               value={selectedDate}

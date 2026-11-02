@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { obtenerEstudiantes, obtenerDashboard, registrarAsistencia, justificarFalta, registrarManualLote, obtenerDiasNoLaborables } from '../services/api';
+import { obtenerEstudiantes, obtenerDashboard, registrarAsistencia, justificarFalta, registrarManualLote, obtenerDiasNoLaborables, getFechaHoyLocal, normalizarFecha } from '../services/api';
 
 const ESTADOS = [
   { valor: 'Asistió', label: 'Asistió', color: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' },
@@ -19,10 +19,7 @@ function getBadgeClass(estado) {
 }
 
 export default function RegistroManual() {
-  const [fecha, setFecha] = useState(() => {
-    const hoy = new Date();
-    return hoy.toISOString().split('T')[0];
-  });
+  const [fecha, setFecha] = useState(() => getFechaHoyLocal());
   const [busqueda, setBusqueda] = useState('');
   const [gradoFiltro, setGradoFiltro] = useState('TODOS');
   const [estadoFiltro, setEstadoFiltro] = useState('FALTA'); // Ajustado automáticamente según el día
@@ -39,7 +36,7 @@ export default function RegistroManual() {
   const fechaFormatted = useMemo(() => {
     if (!fecha) return '';
     const [y, m, d] = fecha.split('-');
-    return `${d}/${m}/${y}`;
+    return `${d.padStart(2, '0')}/${m.padStart(2, '0')}/${y}`;
   }, [fecha]);
 
   // Cargar estudiantes, dashboard inicial y calendario de feriados / días no laborables
@@ -119,7 +116,8 @@ export default function RegistroManual() {
     const map = {};
     if (dashboardData && Array.isArray(dashboardData.registros)) {
       dashboardData.registros.forEach(r => {
-        if (r.fecha === fechaFormatted) {
+        const rFecha = normalizarFecha(r.fecha);
+        if (rFecha === fechaFormatted || r.fecha === fechaFormatted) {
           if (r.dni && /^\d{8}$/.test(String(r.dni).trim())) {
             map[String(r.dni).trim()] = {
               estado: r.estado,

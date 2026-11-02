@@ -1,10 +1,10 @@
 import { useState } from 'react';
-import { justificarFalta, buscarEstudiantePorDni } from '../services/api';
+import { justificarFalta, buscarEstudiantePorDni, getFechaHoyLocal } from '../services/api';
 
 export default function Justificaciones() {
   const [dni, setDni] = useState('');
   const [estudiante, setEstudiante] = useState(null);
-  const [fecha, setFecha] = useState(new Date().toISOString().split('T')[0]);
+  const [fecha, setFecha] = useState(() => getFechaHoyLocal());
   const [tipoPermiso, setTipoPermiso] = useState('Enfermedad');
   const [detalles, setDetalles] = useState('');
   
