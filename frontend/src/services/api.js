@@ -368,10 +368,22 @@ export const obtenerTareas = async (grado = '', dniDocente = '') => {
     if (gRes.ok) {
       const text = await gRes.text();
       const lines = text.split('\n').filter(l => l.trim().length > 0);
+      const headerLine = lines[0] ? lines[0].toLowerCase() : '';
+
+      // Si la hoja Tareas_Escolares no existe aun en Google Sheets, GViz devuelve por defecto
+      // la primera hoja (BD_Estudiantes con 104 alumnos). Validamos los encabezados reales de Tareas:
+      if (!headerLine.includes('tarea') && !headerLine.includes('descripcion')) {
+        return { success: true, tareas: [] };
+      }
+
       const tareas = [];
       for (let i = 1; i < lines.length; i++) {
         const parts = parseCSVLine(lines[i]);
         const id = parts[0] ? parts[0].replace(/^"|"$/g, '').trim() : '';
+        
+        // Toda tarea valida tiene ID con prefijo TAR-
+        if (!id || !id.startsWith('TAR-')) continue;
+
         const fReg = parts[1] ? normalizarFecha(parts[1]) : '';
         const g = parts[2] ? parts[2].replace(/^"|"$/g, '').trim() : '';
         const c = parts[3] ? parts[3].replace(/^"|"$/g, '').trim() : '';
@@ -380,8 +392,6 @@ export const obtenerTareas = async (grado = '', dniDocente = '') => {
         const fEnt = parts[6] ? normalizarFecha(parts[6]) : '';
         const est = parts[7] ? parts[7].replace(/^"|"$/g, '').trim() : 'Activa';
         const dDoc = parts[8] ? parts[8].replace(/^"|"$/g, '').trim() : '';
-
-        if (!id) continue;
         if (grado && grado !== 'TODOS') {
           const gNorm = g.toLowerCase().replace(/[\s-]+/g, '');
           const fNorm = grado.toLowerCase().replace(/[\s-]+/g, '');
