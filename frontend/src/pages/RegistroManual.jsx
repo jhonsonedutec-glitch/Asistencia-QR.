@@ -586,7 +586,7 @@ export default function RegistroManual() {
                           )}
                           {item.horaSalida && item.horaSalida !== '--:--' ? (
                             <span className="text-cyan-400 font-bold">🚪 Sal: {item.horaSalida}</span>
-                          ) : item.hora && item.hora !== '--:--' && (item.estadoActual.includes('Asisti') || item.estadoActual === 'Tardanza') ? (
+                          ) : (fechaFormatted === normalizarFecha(getFechaHoyLocal())) && item.hora && item.hora !== '--:--' && (item.estadoActual.includes('Asisti') || item.estadoActual === 'Tardanza') ? (
                             <span className="text-amber-400/80 text-[11px] bg-amber-500/10 px-1.5 py-0.5 rounded-full border border-amber-500/20 font-sans">🏫 En plantel</span>
                           ) : null}
                         </div>

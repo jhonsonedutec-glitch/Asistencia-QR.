@@ -272,7 +272,7 @@ export default function Dashboard() {
                     <td className="px-4 py-3.5 text-slate-300 font-mono text-xs">
                       {r.horaSalida && r.horaSalida !== '--:--' ? (
                         <span className="text-cyan-400 font-bold">{r.horaSalida}</span>
-                      ) : r.hora && r.hora !== '--:--' && (r.estado.includes('Asisti') || r.estado === 'Tardanza') ? (
+                      ) : (r.fecha === normalizarFecha(getFechaHoyLocal()) || normalizarFecha(r.fecha) === normalizarFecha(getFechaHoyLocal())) && r.hora && r.hora !== '--:--' && (r.estado.includes('Asisti') || r.estado === 'Tardanza') ? (
                         <span className="text-amber-400/80 text-[11px] bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20 font-sans">En plantel</span>
                       ) : (
                         <span className="text-slate-500">--:--</span>

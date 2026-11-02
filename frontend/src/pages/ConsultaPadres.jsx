@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { obtenerHistorialPadre } from '../services/api';
+import React, { useState, useEffect, useMemo } from 'react';
+import { obtenerHistorialPadre, getFechaHoyLocal, normalizarFecha } from '../services/api';
 
 const STORAGE_KEY = 'ultimo_dni_padre';
 
@@ -177,6 +177,8 @@ const ConsultaPadres = () => {
 
                     const tieneIngreso = registro.hora && registro.hora !== '--:--';
                     const tieneSalida = registro.horaSalida && registro.horaSalida !== '--:--';
+                    const fechaHoyNorm = normalizarFecha(getFechaHoyLocal());
+                    const esHoy = normalizarFecha(registro.fecha) === fechaHoyNorm;
 
                     return (
                       <div key={idx} className="flex justify-between items-center p-4 hover:bg-gray-50 border border-gray-100 rounded-lg transition-colors">
@@ -189,7 +191,11 @@ const ConsultaPadres = () => {
                             <span className="flex items-center gap-1 font-medium text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-100">
                               <span>🚪 Salida:</span> 
                               <span className={tieneSalida ? 'font-bold text-blue-800' : 'text-amber-700 font-semibold'}>
-                                {tieneSalida ? registro.horaSalida : (tieneIngreso && (registro.estado.includes('Asisti') || registro.estado === 'Tardanza') ? 'En el colegio' : '--:--')}
+                                {tieneSalida 
+                                  ? registro.horaSalida 
+                                  : (esHoy && tieneIngreso && (registro.estado.includes('Asisti') || registro.estado === 'Tardanza')) 
+                                    ? 'En el colegio' 
+                                    : '--:--'}
                               </span>
                             </span>
                           </div>
