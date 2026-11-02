@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { verificarDocente, obtenerTareas, registrarTarea, finalizarTarea, eliminarTarea, obtenerGrados } from '../services/api';
+import { verificarDocente, obtenerTareas, registrarTarea, finalizarTarea, eliminarTarea } from '../services/api';
 
 const STORAGE_KEY_DOCENTE = 'sesion_dni_docente';
 const STORAGE_KEY_DOCENTE_DATA = 'sesion_data_docente';
@@ -17,6 +17,23 @@ const CURSOS_PREDETERMINADOS = [
   'Educación para el Trabajo',
   'Tutoría',
   'Otro curso...'
+];
+
+const GRADOS_PRIMARIA = [
+  '1ro - Primaria',
+  '2do - Primaria',
+  '3ro - Primaria',
+  '4to - Primaria',
+  '5to - Primaria',
+  '6to - Primaria'
+];
+
+const GRADOS_SECUNDARIA = [
+  '1ro - Secundaria',
+  '2do - Secundaria',
+  '3ro - Secundaria',
+  '4to - Secundaria',
+  '5to - Secundaria'
 ];
 
 export default function TareasDocentes() {
@@ -41,7 +58,7 @@ export default function TareasDocentes() {
   const [loginError, setLoginError] = useState(null);
 
   // Estados del Formulario de Tarea
-  const [grado, setGrado] = useState('');
+  const [grado, setGrado] = useState('1ro - Primaria');
   const [cursoSelect, setCursoSelect] = useState('Matemáticas');
   const [cursoOtro, setCursoOtro] = useState('');
   const [descripcion, setDescripcion] = useState('');
@@ -53,11 +70,6 @@ export default function TareasDocentes() {
     const d = String(manana.getDate()).padStart(2, '0');
     return `${y}-${m}-${d}`;
   });
-
-  const [gradosDisponibles, setGradosDisponibles] = useState([
-    '1ro - Primaria', '2do - Primaria', '3ro - Primaria', '4to - Primaria', '5to - Primaria', '6to - Primaria',
-    '1ro - Secundaria', '2do - Secundaria', '3ro - Secundaria', '4to - Secundaria', '5to - Secundaria'
-  ]);
 
   const [submitting, setSubmitting] = useState(false);
   const [mensaje, setMensaje] = useState(null);
@@ -112,19 +124,6 @@ export default function TareasDocentes() {
     };
   }, []);
 
-  // Cargar lista oficial de grados
-  useEffect(() => {
-    obtenerGrados().then(res => {
-      if (res && res.success && Array.isArray(res.grados) && res.grados.length > 0) {
-        setGradosDisponibles(res.grados);
-        if (!grado) setGrado(res.grados[0]);
-      } else if (!grado && gradosDisponibles.length > 0) {
-        setGrado(gradosDisponibles[0]);
-      }
-    }).catch(() => {
-      if (!grado && gradosDisponibles.length > 0) setGrado(gradosDisponibles[0]);
-    });
-  }, []);
 
   // Cargar tareas al tener sesión de docente activa
   const cargarTareas = useCallback(async () => {
@@ -460,11 +459,18 @@ export default function TareasDocentes() {
                 <select
                   value={grado}
                   onChange={(e) => setGrado(e.target.value)}
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white focus:border-blue-500 outline-none"
+                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white focus:border-blue-500 outline-none font-medium"
                 >
-                  {gradosDisponibles.map(g => (
-                    <option key={g} value={g}>{g}</option>
-                  ))}
+                  <optgroup label="── ☀️ NIVEL PRIMARIA ──">
+                    {GRADOS_PRIMARIA.map(g => (
+                      <option key={g} value={g}>{g}</option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="── 🌅 NIVEL SECUNDARIA ──">
+                    {GRADOS_SECUNDARIA.map(g => (
+                      <option key={g} value={g}>{g}</option>
+                    ))}
+                  </optgroup>
                 </select>
               </div>
 

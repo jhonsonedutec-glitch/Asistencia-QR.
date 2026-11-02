@@ -641,10 +641,26 @@ function obtenerGradosDisponibles() {
   const estudiantes = actualizarCacheEstudiantes();
   const gradosSet = new Set();
   for (const dni in estudiantes) {
-    const grado = String(estudiantes[dni].grado || '').trim();
-    if (grado) gradosSet.add(grado);
+    const est = estudiantes[dni];
+    const grado = String(est.grado || '').trim();
+    const nivel = String(est.nivel || '').trim();
+    if (grado) {
+      const item = nivel ? (grado + ' - ' + nivel) : grado;
+      gradosSet.add(item);
+    }
   }
-  const grados = Array.from(gradosSet).sort();
+  const orden = [
+    '1ro - Primaria', '2do - Primaria', '3ro - Primaria', '4to - Primaria', '5to - Primaria', '6to - Primaria',
+    '1ro - Secundaria', '2do - Secundaria', '3ro - Secundaria', '4to - Secundaria', '5to - Secundaria'
+  ];
+  const grados = Array.from(gradosSet).sort((a, b) => {
+    const idxA = orden.indexOf(a);
+    const idxB = orden.indexOf(b);
+    if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+    if (idxA !== -1) return -1;
+    if (idxB !== -1) return 1;
+    return a.localeCompare(b);
+  });
   return { success: true, grados: grados };
 }
 
