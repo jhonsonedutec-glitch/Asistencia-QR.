@@ -4,19 +4,60 @@ import { verificarDocente, obtenerTareas, registrarTarea, finalizarTarea, elimin
 const STORAGE_KEY_DOCENTE = 'sesion_dni_docente';
 const STORAGE_KEY_DOCENTE_DATA = 'sesion_data_docente';
 
-const CURSOS_PREDETERMINADOS = [
-  'Matemáticas',
-  'Comunicación',
-  'Ciencia y Tecnología',
-  'Ciencias Sociales',
-  'Desarrollo Personal (DPCC)',
-  'Inglés',
-  'Educación Física',
-  'Arte y Cultura',
-  'Educación Religiosa',
-  'Educación para el Trabajo',
-  'Tutoría',
-  'Otro curso...'
+const CATEGORIAS_CURSOS = [
+  {
+    categoria: '📐 MATEMÁTICAS Y RAZONAMIENTO',
+    cursos: [
+      'Álgebra',
+      'Aritmética',
+      'Geometría',
+      'Trigonometría',
+      'Razonamiento Matemático',
+      'Nivelación Matemática',
+      'Matemática'
+    ]
+  },
+  {
+    categoria: '🔬 CIENCIAS NATURALES Y SALUD',
+    cursos: [
+      'Anatomía',
+      'Biología',
+      'Física',
+      'Química',
+      'Ciencia y Tecnología'
+    ]
+  },
+  {
+    categoria: '📖 COMUNICACIÓN Y LETRAS',
+    cursos: [
+      'Comunicación',
+      'Comprensión Lectora',
+      'Literatura',
+      'Razonamiento Verbal',
+      'Inglés'
+    ]
+  },
+  {
+    categoria: '🌍 CIENCIAS SOCIALES Y HUMANIDADES',
+    cursos: [
+      'Ciencias Sociales',
+      'Historia',
+      'Geopolítica',
+      'Economía',
+      'Educación Cívica',
+      'Personal Social'
+    ]
+  },
+  {
+    categoria: '🎨 DESARROLLO Y FORMACIÓN INTEGRAL',
+    cursos: [
+      'Arte y Cultura',
+      'Desarrollo Personal (DPCC)',
+      'Educación Física',
+      'Educación Religiosa',
+      'Tutoría'
+    ]
+  }
 ];
 
 const GRADOS_PRIMARIA = [
@@ -59,7 +100,7 @@ export default function TareasDocentes() {
 
   // Estados del Formulario de Tarea
   const [grado, setGrado] = useState('1ro - Primaria');
-  const [cursoSelect, setCursoSelect] = useState('Matemáticas');
+  const [cursoSelect, setCursoSelect] = useState('Álgebra');
   const [cursoOtro, setCursoOtro] = useState('');
   const [descripcion, setDescripcion] = useState('');
   const [fechaEntrega, setFechaEntrega] = useState(() => {
@@ -187,7 +228,14 @@ export default function TareasDocentes() {
     e.preventDefault();
     if (!docente) return;
 
-    const cursoFinal = cursoSelect === 'Otro curso...' ? cursoOtro.trim() : cursoSelect;
+    const esOtro = cursoSelect === 'OTRO' || cursoSelect === 'Otro curso...';
+    const cursoFinal = esOtro ? cursoOtro.trim() : cursoSelect;
+
+    if (esOtro && !cursoOtro.trim()) {
+      setMensaje({ tipo: 'error', texto: 'Por favor escribe el nombre del curso personalizado.' });
+      return;
+    }
+
     if (!grado || !cursoFinal || !descripcion.trim()) {
       setMensaje({ tipo: 'error', texto: 'Por favor complete el grado, materia y descripción de la tarea.' });
       return;
@@ -216,7 +264,7 @@ export default function TareasDocentes() {
       if (res && res.success) {
         setMensaje({ tipo: 'success', texto: `✅ Tarea de ${cursoFinal} publicada para ${grado}.` });
         setDescripcion('');
-        if (cursoSelect === 'Otro curso...') setCursoOtro('');
+        if (esOtro) setCursoOtro('');
         await cargarTareas();
       } else {
         setMensaje({ tipo: 'error', texto: res.message || 'No se pudo publicar la tarea.' });
@@ -480,22 +528,34 @@ export default function TareasDocentes() {
                 <select
                   value={cursoSelect}
                   onChange={(e) => setCursoSelect(e.target.value)}
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white focus:border-blue-500 outline-none"
+                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white focus:border-blue-500 outline-none font-medium"
                 >
-                  {CURSOS_PREDETERMINADOS.map(c => (
-                    <option key={c} value={c}>{c}</option>
+                  {CATEGORIAS_CURSOS.map((cat) => (
+                    <optgroup key={cat.categoria} label={`── ${cat.categoria} ──`}>
+                      {cat.cursos.map((c) => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </optgroup>
                   ))}
+                  <optgroup label="── ✏️ PERSONALIZADO ──">
+                    <option value="OTRO">Otro (especificar manualmente)...</option>
+                  </optgroup>
                 </select>
 
-                {cursoSelect === 'Otro curso...' && (
-                  <input
-                    type="text"
-                    placeholder="Escribe el nombre del curso"
-                    value={cursoOtro}
-                    onChange={(e) => setCursoOtro(e.target.value)}
-                    className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white placeholder-slate-500 focus:border-blue-500 outline-none"
-                    autoFocus
-                  />
+                {(cursoSelect === 'OTRO' || cursoSelect === 'Otro curso...') && (
+                  <div className="mt-2.5">
+                    <label className="block text-[11px] font-semibold text-blue-400 mb-1 ml-1">
+                      ✏️ Especifica el nombre del curso:
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Ej. Robótica, Computación, Taller de Oratoria..."
+                      value={cursoOtro}
+                      onChange={(e) => setCursoOtro(e.target.value)}
+                      className="w-full rounded-xl border border-blue-500/50 bg-slate-950 px-3 py-2 text-sm text-white placeholder-slate-500 focus:border-blue-400 focus:ring-1 focus:ring-blue-400 outline-none"
+                      autoFocus
+                    />
+                  </div>
                 )}
               </div>
 
@@ -527,7 +587,11 @@ export default function TareasDocentes() {
 
               <button
                 type="submit"
-                disabled={submitting || !descripcion.trim()}
+                disabled={
+                  submitting || 
+                  !descripcion.trim() || 
+                  ((cursoSelect === 'OTRO' || cursoSelect === 'Otro curso...') && !cursoOtro.trim())
+                }
                 className="w-full rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 py-3 font-bold text-white shadow-lg hover:from-blue-500 hover:to-indigo-500 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
                 {submitting ? (
