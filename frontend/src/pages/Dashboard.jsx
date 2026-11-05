@@ -285,9 +285,16 @@ export default function Dashboard() {
                         r.estado === 'Tardanza' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' : 
                         r.estado === 'Justificado' ? 'bg-violet-500/10 text-violet-400 border border-violet-500/20' : 
                         'bg-red-500/10 text-red-400 border border-red-500/20'
-                      }`}>
+                      }`}
+                      title={r.motivo || ''}
+                      >
                         {r.estado}
                       </span>
+                      {r.motivo && (
+                        <span className="block text-[11px] text-violet-300/80 mt-0.5 max-w-[220px] truncate" title={r.motivo}>
+                          {r.motivo}
+                        </span>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -381,6 +388,11 @@ export default function Dashboard() {
                           }`}>
                             {r.estado}
                           </span>
+                          {r.motivo && (
+                            <span className="block text-[11px] text-violet-300/80 mt-0.5 max-w-[200px] truncate" title={r.motivo}>
+                              {r.motivo}
+                            </span>
+                          )}
                         </td>
                       </tr>
                     ))}

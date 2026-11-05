@@ -1,5 +1,6 @@
 const GAS_URL = 'https://script.google.com/macros/s/AKfycbypcAyDZRhiv_3z-5OqjkZ5MkAmZeHzzg2LF_NiRvXBrGHE-wiHYASf08STy2GMWDh0/exec';
 const SPREADSHEET_ID = '1S78EzSmPc7jlyd0_hKzaUSPGaCL45_ZOaivyNft_t-A';
+const GID_JUSTIFICACIONES = '870985132';
 
 // Obtener fecha de hoy en formato 'YYYY-MM-DD' en la zona horaria oficial de Perú (America/Lima)
 export const getFechaHoyLocal = () => {
@@ -84,16 +85,32 @@ export const obtenerDashboard = async (meses = 1) => {
   try {
     const gvizUrl = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=Registro_Diario`;
 
-    const [dashRes, gvizText, estRes] = await Promise.all([
+    const [dashRes, gvizText, estRes, justRes] = await Promise.all([
       request(`${GAS_URL}?action=dashboard&meses=${meses}`).catch(() => ({ success: false })),
       fetch(gvizUrl).then(r => r.ok ? r.text() : '').catch(() => ''),
-      obtenerEstudiantes().catch(() => ({ success: false }))
+      obtenerEstudiantes().catch(() => ({ success: false })),
+      obtenerJustificaciones().catch(() => ({ success: false, justificaciones: [] }))
     ]);
+
+    const listaJustificaciones = justRes && Array.isArray(justRes.justificaciones) ? justRes.justificaciones : [];
+    const mapJustificaciones = {};
+    listaJustificaciones.forEach(j => {
+      const fNorm = normalizarFecha(j.fecha);
+      const dniKey = String(j.dni || '').trim();
+      if (fNorm && dniKey) {
+        mapJustificaciones[`${fNorm}_${dniKey}`] = j.motivo || 'Permiso Justificado';
+      }
+    });
 
     const registrosBase = dashRes && Array.isArray(dashRes.registros) ? [...dashRes.registros] : [];
     registrosBase.forEach(r => {
       if (r.fecha) r.fecha = normalizarFecha(r.fecha);
       if (!r.horaSalida) r.horaSalida = '--:--';
+      const key = `${r.fecha}_${r.dni}`;
+      if (mapJustificaciones[key]) {
+        r.estado = 'Justificado';
+        r.motivo = mapJustificaciones[key];
+      }
     });
 
     const registrosPorFechaDni = new Set();
@@ -106,7 +123,7 @@ export const obtenerDashboard = async (meses = 1) => {
     if (gvizText) {
       const lines = gvizText.split('\n').filter(l => l.trim().length > 0);
       const gvizPorFecha = {};
-      const gvizMapSalida = {}; // Map fecha_dni -> horaSalida
+      const gvizMapSalida = {};
 
       for (let i = 1; i < lines.length; i++) {
         const parts = parseCSVLine(lines[i]);
@@ -114,19 +131,23 @@ export const obtenerDashboard = async (meses = 1) => {
         const h = parts[1] || '--:--';
         const d = parts[2] ? parts[2].replace(/^"|"$/g, '').trim() : '';
         const nom = parts[3] ? parts[3].replace(/^"|"$/g, '').trim() : '';
-        const est = parts[4] ? parts[4].replace(/^"|"$/g, '').trim() : 'Asistió';
+        let est = parts[4] ? parts[4].replace(/^"|"$/g, '').trim() : 'Asistió';
         const hSalida = parts[8] && parts[8] !== 'null' && parts[8].trim() !== '' ? parts[8].replace(/^"|"$/g, '').trim() : '--:--';
         
         if (f && d) {
+          const key = `${f}_${d}`;
+          if (mapJustificaciones[key]) {
+            est = 'Justificado';
+          }
           if (!gvizPorFecha[f]) gvizPorFecha[f] = [];
-          gvizPorFecha[f].push({ fecha: f, hora: h, horaSalida: hSalida, dni: d, nombre: nom, estado: est });
+          gvizPorFecha[f].push({ fecha: f, hora: h, horaSalida: hSalida, dni: d, nombre: nom, estado: est, motivo: mapJustificaciones[key] || '' });
           if (hSalida !== '--:--') {
-            gvizMapSalida[`${f}_${d}`] = hSalida;
+            gvizMapSalida[key] = hSalida;
           }
         }
       }
 
-      // Si hay registros en base que no tenían horaSalida pero en GViz ya se registró la salida, actualizarla
+      // Actualizar horaSalida si está disponible en GViz
       registrosBase.forEach(r => {
         const key = `${r.fecha}_${r.dni}`;
         if (gvizMapSalida[key] && (!r.horaSalida || r.horaSalida === '--:--')) {
@@ -142,6 +163,7 @@ export const obtenerDashboard = async (meses = 1) => {
           const dnisEscaneados = new Set(escaneados.map(e => e.dni));
 
           escaneados.forEach(e => {
+            const key = `${e.fecha}_${e.dni}`;
             registrosBase.push({
               fecha: e.fecha,
               timestamp: Date.now(),
@@ -149,14 +171,22 @@ export const obtenerDashboard = async (meses = 1) => {
               horaSalida: e.horaSalida || '--:--',
               dni: e.dni,
               nombre: e.nombre,
-              estado: e.estado
+              estado: e.estado,
+              motivo: e.motivo || ''
             });
-            registrosPorFechaDni.add(`${e.fecha}_${e.dni}`);
+            registrosPorFechaDni.add(key);
           });
 
           estudiantesLista.forEach(est => {
             const dniVal = String(est.dni || '').trim();
-            if (dniVal && !dnisEscaneados.has(dniVal) && !registrosPorFechaDni.has(`${fKey}_${dniVal}`)) {
+            const key = `${fKey}_${dniVal}`;
+            if (dniVal && !dnisEscaneados.has(dniVal) && !registrosPorFechaDni.has(key)) {
+              let estadoFinal = 'Falta';
+              let motivoFinal = '';
+              if (mapJustificaciones[key]) {
+                estadoFinal = 'Justificado';
+                motivoFinal = mapJustificaciones[key];
+              }
               registrosBase.push({
                 fecha: fKey,
                 timestamp: Date.now(),
@@ -164,13 +194,34 @@ export const obtenerDashboard = async (meses = 1) => {
                 horaSalida: '--:--',
                 dni: dniVal,
                 nombre: est.nombre,
-                estado: 'Falta'
+                estado: estadoFinal,
+                motivo: motivoFinal
               });
-              registrosPorFechaDni.add(`${fKey}_${dniVal}`);
+              registrosPorFechaDni.add(key);
             }
           });
         }
       }
+
+      // Incluir justificaciones en fechas donde no hubo escaneos
+      listaJustificaciones.forEach(j => {
+        const fNorm = normalizarFecha(j.fecha);
+        const dniVal = String(j.dni || '').trim();
+        const key = `${fNorm}_${dniVal}`;
+        if (!registrosPorFechaDni.has(key)) {
+          registrosBase.push({
+            fecha: fNorm,
+            timestamp: Date.now(),
+            hora: '--:--',
+            horaSalida: '--:--',
+            dni: dniVal,
+            nombre: j.nombre || 'Estudiante',
+            estado: 'Justificado',
+            motivo: j.motivo
+          });
+          registrosPorFechaDni.add(key);
+        }
+      });
     }
 
     const asistencias = registrosBase.filter(r => r.estado && r.estado.includes('Asisti')).length;
@@ -198,6 +249,83 @@ export const obtenerDashboard = async (meses = 1) => {
 };
 
 
+// --- Módulo de Justificaciones y Permisos ---
+export const obtenerJustificaciones = async () => {
+  try {
+    const exportUrl = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/export?format=csv&gid=${GID_JUSTIFICACIONES}`;
+    const [resExport, estRes] = await Promise.all([
+      fetch(exportUrl).then(r => r.ok ? r.text() : '').catch(() => ''),
+      obtenerEstudiantes().catch(() => ({ success: false }))
+    ]);
+
+    let rawText = resExport;
+    if (!rawText || !rawText.toLowerCase().includes('dni')) {
+      const gvizUrl = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=Justificaciones`;
+      rawText = await fetch(gvizUrl).then(r => r.ok ? r.text() : '').catch(() => '');
+    }
+
+    if (!rawText || !rawText.toLowerCase().includes('dni')) {
+      const gasRes = await request(`${GAS_URL}?action=obtener_justificaciones`).catch(() => null);
+      if (gasRes && gasRes.success && Array.isArray(gasRes.justificaciones)) {
+        return { success: true, justificaciones: gasRes.justificaciones };
+      }
+    }
+
+    const estudiantes = estRes && Array.isArray(estRes.estudiantes) ? estRes.estudiantes : [];
+    const estMap = {};
+    estudiantes.forEach(e => {
+      if (e.dni) estMap[String(e.dni).trim()] = e;
+    });
+
+    const lines = (rawText || '').split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    const lista = [];
+
+    for (let i = 1; i < lines.length; i++) {
+      const parts = parseCSVLine(lines[i]);
+      if (parts.length >= 2) {
+        const fecha = normalizarFecha(parts[0]);
+        const dni = parts[1] ? parts[1].replace(/^"|"$/g, '').trim() : '';
+        const motivo = parts.slice(2).join(', ').replace(/^"|"$/g, '').trim();
+
+        if (dni && /^\d{8}$/.test(dni)) {
+          const est = estMap[dni];
+          lista.push({
+            id: `JUST-${fecha}-${dni}-${i}`,
+            fila: i + 1,
+            fecha: fecha,
+            dni: dni,
+            motivo: motivo || 'Sin detalle especificado',
+            nombre: est ? est.nombre : 'Estudiante no registrado',
+            grado: est ? est.grado : '',
+            nivel: est ? est.nivel : '',
+            gradoCompleto: est ? (est.nivel ? `${est.grado} - ${est.nivel}` : est.grado) : ''
+          });
+        }
+      }
+    }
+
+    lista.reverse();
+
+    return {
+      success: true,
+      justificaciones: lista
+    };
+  } catch (err) {
+    console.error('Error al obtener justificaciones:', err);
+    return {
+      success: false,
+      message: err.message,
+      justificaciones: []
+    };
+  }
+};
+
+export const eliminarJustificacion = (dni, fecha) => request(GAS_URL, {
+  method: 'POST',
+  headers: { 'Content-Type': 'text/plain' },
+  body: JSON.stringify({ action: 'eliminar_justificacion', dni, fecha })
+});
+
 export const buscarEstudiantePorDni = dni => request(`${GAS_URL}?action=buscar_estudiante&dni=${dni}`);
 
 export const justificarFalta = (dni, fecha, motivo) => request(GAS_URL, {
@@ -210,8 +338,19 @@ export const obtenerEstudiantes = () => request(`${GAS_URL}?action=estudiantes`)
 
 export const obtenerHistorialPadre = async (dni) => {
   try {
-    const res = await request(`${GAS_URL}?action=consulta_padre&dni=${dni}`);
-    // Enriquecer en tiempo real con GViz para horaSalida
+    const [res, justRes] = await Promise.all([
+      request(`${GAS_URL}?action=consulta_padre&dni=${dni}`),
+      obtenerJustificaciones().catch(() => ({ success: false, justificaciones: [] }))
+    ]);
+
+    const justifsEstudiante = (justRes && Array.isArray(justRes.justificaciones)) 
+      ? justRes.justificaciones.filter(j => String(j.dni).trim() === String(dni).trim())
+      : [];
+    const mapJ = {};
+    justifsEstudiante.forEach(j => {
+      mapJ[normalizarFecha(j.fecha)] = j.motivo;
+    });
+
     try {
       const gvizUrl = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=Registro_Diario`;
       const gRes = await fetch(gvizUrl);
@@ -229,14 +368,44 @@ export const obtenerHistorialPadre = async (dni) => {
           }
         }
         if (res && res.success && Array.isArray(res.historial)) {
+          const fechasEnHistorial = new Set();
           res.historial.forEach(h => {
             const fNorm = normalizarFecha(h.fecha);
+            fechasEnHistorial.add(fNorm);
             if (mapSalida[fNorm]) {
               h.horaSalida = mapSalida[fNorm];
             } else if (!h.horaSalida) {
               h.horaSalida = '--:--';
             }
+            if (mapJ[fNorm]) {
+              h.estado = 'Justificado';
+              h.motivo = mapJ[fNorm];
+            }
           });
+
+          // Agregar fechas justificadas que no estaban en Registro_Diario
+          for (const fJustif in mapJ) {
+            if (!fechasEnHistorial.has(fJustif)) {
+              res.historial.push({
+                fecha: fJustif,
+                hora: '--:--',
+                horaSalida: '--:--',
+                estado: 'Justificado',
+                motivo: mapJ[fJustif]
+              });
+              fechasEnHistorial.add(fJustif);
+            }
+          }
+
+          // Recalcular estadísticas del estudiante
+          let asist = 0, tard = 0, falt = 0, just = 0;
+          res.historial.forEach(h => {
+            if (h.estado === 'Justificado') just++;
+            else if (h.estado.includes('Asisti')) asist++;
+            else if (h.estado === 'Tardanza') tard++;
+            else if (h.estado === 'Falta') falt++;
+          });
+          res.estadisticas = { asistencias: asist, tardanzas: tard, faltas: falt, justificados: just };
         }
       }
     } catch (e) {

@@ -82,6 +82,10 @@ function doGet(e) {
       return jsonResponse(verificarDocente(dni));
     }
 
+    if (action === 'obtener_justificaciones') {
+      return jsonResponse(obtenerJustificacionesGAS());
+    }
+
     if (action === 'obtener_tareas') {
       const grado = String(e.parameter.grado || '').trim();
       const dniDocente = String(e.parameter.dniDocente || '').trim();
@@ -102,7 +106,7 @@ function doPost(e) {
     const dni = String(data.dni || '').trim();
 
     if (action === 'justificar') {
-      const fechaReq = data.fecha;
+      const fechaReq = normalizarFechaGAS(data.fecha);
       const motivo = data.motivo;
       if (!/^\d{8}$/.test(dni)) return jsonResponse({ success: false, message: 'DNI inválido.' });
       if (!fechaReq || !motivo) return jsonResponse({ success: false, message: 'Datos incompletos.' });
@@ -111,7 +115,8 @@ function doPost(e) {
       if (!estudiante) return jsonResponse({ success: false, message: 'Estudiante no encontrado.' });
       
       const hojaJustificaciones = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(HOJA_JUSTIFICACIONES);
-      hojaJustificaciones.appendRow([fechaReq, dni, motivo]);
+      // Prefijo con apóstrofe para forzar tipo TEXTO y evitar que Google Sheets invierta día/mes
+      hojaJustificaciones.appendRow(["'" + fechaReq, "'" + dni, motivo]);
       SpreadsheetApp.flush();
       
       return jsonResponse({
@@ -119,6 +124,33 @@ function doPost(e) {
         message: 'Permiso/Justificación registrada correctamente',
         estudiante
       });
+    }
+
+    if (action === 'eliminar_justificacion') {
+      const fechaReq = normalizarFechaGAS(data.fecha);
+      const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+      const hojaJustificaciones = ss.getSheetByName(HOJA_JUSTIFICACIONES);
+      if (!hojaJustificaciones) return jsonResponse({ success: false, message: 'Hoja de justificaciones no encontrada.' });
+      
+      const ultFila = hojaJustificaciones.getLastRow();
+      if (ultFila <= 1) return jsonResponse({ success: false, message: 'No hay justificaciones para eliminar.' });
+      
+      const datos = hojaJustificaciones.getRange(1, 1, ultFila, 2).getDisplayValues();
+      let filaEliminada = -1;
+      for (let i = 1; i < datos.length; i++) {
+        const fStr = normalizarFechaGAS(datos[i][0]);
+        const dStr = String(datos[i][1]).trim();
+        if (dStr === dni && (fStr === fechaReq || !fechaReq)) {
+          filaEliminada = i + 1;
+          break;
+        }
+      }
+      if (filaEliminada !== -1) {
+        hojaJustificaciones.deleteRow(filaEliminada);
+        SpreadsheetApp.flush();
+        return jsonResponse({ success: true, message: 'Justificación eliminada correctamente.' });
+      }
+      return jsonResponse({ success: false, message: 'No se encontró la justificación para eliminar.' });
     }
 
     if (action === 'registrar_manual_lote') {
@@ -375,15 +407,14 @@ function obtenerHistorialPadre(dni, estudiante) {
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const tz = Session.getScriptTimeZone() || 'America/Lima';
 
-  // Leer justificaciones registradas
+  // Leer justificaciones registradas usando getDisplayValues para no perder formato DD/MM/YYYY
   const hojaJ = ss.getSheetByName(HOJA_JUSTIFICACIONES);
   const ultFilaJ = hojaJ ? hojaJ.getLastRow() : 0;
   const ultColJ = hojaJ ? hojaJ.getLastColumn() : 0;
-  const datosJ = ultFilaJ > 1 ? hojaJ.getRange(2, 1, ultFilaJ - 1, ultColJ).getValues() : [];
+  const datosJ = ultFilaJ > 1 ? hojaJ.getRange(2, 1, ultFilaJ - 1, ultColJ).getDisplayValues() : [];
   const mapJ = {};
   for (let j = 0; j < datosJ.length; j++) {
-    const fCelda = datosJ[j][0];
-    const fDate = fCelda instanceof Date ? Utilities.formatDate(fCelda, tz, 'dd/MM/yyyy') : String(fCelda || '').trim();
+    const fDate = normalizarFechaGAS(datosJ[j][0]);
     const d = String(datosJ[j][1] || '').trim();
     if (d === dni) {
       mapJ[fDate] = String(datosJ[j][2] || 'Permiso justificado').trim();
@@ -402,6 +433,7 @@ function obtenerHistorialPadre(dni, estudiante) {
   const cEstado = headers.indexOf('estado');
 
   const historial = [];
+  const fechasRegistradas = {};
   let faltas = 0;
   let tardanzas = 0;
   let asistencias = 0;
@@ -412,7 +444,8 @@ function obtenerHistorialPadre(dni, estudiante) {
       const fila = registrosDatos[i];
       if (String(fila[cDNI]).trim() === dni) {
         let estado = String(fila[cEstado] || '').trim();
-        const fecha = String(fila[cFecha] || '').trim();
+        const fecha = normalizarFechaGAS(fila[cFecha]);
+        fechasRegistradas[fecha] = true;
         let motivo = '';
 
         if (mapJ[fecha]) {
@@ -445,6 +478,20 @@ function obtenerHistorialPadre(dni, estudiante) {
         else if (estado === 'Tardanza') tardanzas++;
         else if (estado === 'Falta') faltas++;
       }
+    }
+  }
+
+  // Agregar fechas con justificación donde el estudiante no asistió y no tiene fila en Registro_Diario
+  for (const fJustif in mapJ) {
+    if (!fechasRegistradas[fJustif]) {
+      historial.push({
+        fecha: fJustif,
+        hora: '--:--',
+        horaSalida: '--:--',
+        estado: 'Justificado',
+        motivo: mapJ[fJustif]
+      });
+      justificados++;
     }
   }
 
@@ -509,15 +556,16 @@ function obtenerDashboard(meses) {
   const registrosPorFecha = {};
 
   const hojaJ = ss.getSheetByName(HOJA_JUSTIFICACIONES);
-  const ultFilaJ = hojaJ.getLastRow();
-  const ultColJ = hojaJ.getLastColumn();
-  const datosJustificaciones = ultFilaJ > 0 && ultColJ > 0 ? hojaJ.getRange(1, 1, ultFilaJ, ultColJ).getValues() : [];
+  const ultFilaJ = hojaJ ? hojaJ.getLastRow() : 0;
+  const ultColJ = hojaJ ? hojaJ.getLastColumn() : 0;
+  const datosJustificaciones = ultFilaJ > 1 && ultColJ > 0 ? hojaJ.getRange(2, 1, ultFilaJ - 1, ultColJ).getDisplayValues() : [];
   const mapJustificaciones = {};
-  for (let i = 1; i < datosJustificaciones.length; i++) {
-    if (!datosJustificaciones[i][0]) continue;
-    const fDate = datosJustificaciones[i][0] instanceof Date ? Utilities.formatDate(datosJustificaciones[i][0], Session.getScriptTimeZone(), 'dd/MM/yyyy') : String(datosJustificaciones[i][0]);
+  for (let i = 0; i < datosJustificaciones.length; i++) {
+    const fDate = normalizarFechaGAS(datosJustificaciones[i][0]);
     const d = String(datosJustificaciones[i][1]).trim();
-    mapJustificaciones[fDate + '_' + d] = datosJustificaciones[i][2];
+    if (fDate && d) {
+      mapJustificaciones[fDate + '_' + d] = datosJustificaciones[i][2] || 'Justificado';
+    }
   }
 
   for (let i = 1; i < datos.length; i++) {
@@ -530,7 +578,11 @@ function obtenerDashboard(meses) {
       const fechaStr = fechaCelda instanceof Date ? Utilities.formatDate(fechaCelda, Session.getScriptTimeZone(), 'dd/MM/yyyy') : String(fechaCelda);
       const horaStr = datos[i][1] instanceof Date ? Utilities.formatDate(datos[i][1], Session.getScriptTimeZone(), 'HH:mm:ss') : String(datos[i][1]);
       const dni = String(datos[i][2]).trim();
-      const estado = String(datos[i][4]);
+      let estado = String(datos[i][4]);
+      const keyJust = fechaStr + '_' + dni;
+      if (mapJustificaciones[keyJust]) {
+        estado = 'Justificado';
+      }
       
       const horaSalidaStr = (datos[i][8] && String(datos[i][8]).trim() !== '' && String(datos[i][8]).trim() !== 'null') ? String(datos[i][8]).trim() : '--:--';
       registros.push({
@@ -1149,4 +1201,73 @@ function eliminarTarea(idTarea) {
     }
   }
   return { success: false, message: 'Tarea no encontrada.' };
+}
+
+
+function normalizarFechaGAS(str) {
+  if (!str) return '';
+  str = String(str).replace(/['"]/g, '').trim();
+  if (str.indexOf('/') !== -1) {
+    const parts = str.split('/');
+    if (parts.length === 3) {
+      const d = parts[0].length === 1 ? '0' + parts[0] : parts[0];
+      const m = parts[1].length === 1 ? '0' + parts[1] : parts[1];
+      const y = parts[2];
+      return d + '/' + m + '/' + y;
+    }
+  }
+  if (str.indexOf('-') !== -1) {
+    const parts = str.split('-');
+    if (parts.length === 3 && parts[0].length === 4) {
+      const d = parts[2].length === 1 ? '0' + parts[2] : parts[2];
+      const m = parts[1].length === 1 ? '0' + parts[1] : parts[1];
+      const y = parts[0];
+      return d + '/' + m + '/' + y;
+    }
+  }
+  return str;
+}
+
+function obtenerJustificacionesGAS() {
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const hojaJ = ss.getSheetByName(HOJA_JUSTIFICACIONES);
+    if (!hojaJ) return { success: false, message: 'Hoja no encontrada', justificaciones: [] };
+
+    const ultFila = hojaJ.getLastRow();
+    const ultCol = hojaJ.getLastColumn();
+    if (ultFila <= 1) return { success: true, justificaciones: [] };
+
+    const datos = hojaJ.getRange(1, 1, ultFila, ultCol).getDisplayValues();
+    const estudiantes = actualizarCacheEstudiantes();
+    const estMap = {};
+    estudiantes.forEach(e => {
+      if (e.dni) estMap[String(e.dni).trim()] = e;
+    });
+
+    const lista = [];
+    for (let i = 1; i < datos.length; i++) {
+      const fecha = normalizarFechaGAS(datos[i][0]);
+      const dni = String(datos[i][1]).trim();
+      const motivo = String(datos[i][2] || '').trim();
+      if (dni && /^\d{8}$/.test(dni)) {
+        const est = estMap[dni];
+        lista.push({
+          id: 'JUST-' + fecha + '-' + dni + '-' + i,
+          fila: i + 1,
+          fecha: fecha,
+          dni: dni,
+          motivo: motivo || 'Sin detalle especificado',
+          nombre: est ? est.nombre : 'Estudiante no registrado',
+          grado: est ? est.grado : '',
+          nivel: est ? est.nivel : '',
+          gradoCompleto: est ? (est.nivel ? est.grado + ' - ' + est.nivel : est.grado) : ''
+        });
+      }
+    }
+    lista.reverse();
+    return { success: true, justificaciones: lista };
+  } catch (err) {
+    return { success: false, message: err.message, justificaciones: [] };
+  }
 }
