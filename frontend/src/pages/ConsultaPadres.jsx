@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { obtenerHistorialPadre, obtenerTareas, getFechaHoyLocal, normalizarFecha, calcularEstadoTarea } from '../services/api';
+import { obtenerHistorialPadre, obtenerTareas, obtenerComunicados, getFechaHoyLocal, normalizarFecha, calcularEstadoTarea } from '../services/api';
 
 const STORAGE_KEY = 'ultimo_dni_padre';
 
@@ -15,10 +15,13 @@ const ConsultaPadres = () => {
   const [error, setError] = useState(null);
   const [data, setData] = useState(null);
 
-  // Pestañas: 'asistencia' | 'tareas'
+  // Pestañas: 'asistencia' | 'tareas' | 'comunicados'
   const [pestanaActiva, setPestanaActiva] = useState('asistencia');
   const [tareas, setTareas] = useState([]);
   const [loadingTareas, setLoadingTareas] = useState(false);
+  const [comunicados, setComunicados] = useState([]);
+  const [loadingComunicados, setLoadingComunicados] = useState(false);
+  const [modalBanner, setModalBanner] = useState(null);
 
   // Consultar automáticamente si ya hay un DNI guardado al cargar la página
   useEffect(() => {
@@ -58,6 +61,16 @@ const ConsultaPadres = () => {
           }).finally(() => {
             setLoadingTareas(false);
           });
+
+          // Cargar comunicados y reuniones para este grado o generales
+          setLoadingComunicados(true);
+          obtenerComunicados(gradoBusqueda).then(cRes => {
+            if (cRes && cRes.success && Array.isArray(cRes.comunicados)) {
+              setComunicados(cRes.comunicados);
+            }
+          }).finally(() => {
+            setLoadingComunicados(false);
+          });
         }
       } else {
         setError(result.message || 'No se encontró el historial para este DNI.');
@@ -79,6 +92,7 @@ const ConsultaPadres = () => {
     setData(null);
     setError(null);
     setTareas([]);
+    setComunicados([]);
     try {
       localStorage.removeItem(STORAGE_KEY);
     } catch {}
@@ -92,6 +106,10 @@ const ConsultaPadres = () => {
   const tareasActivas = useMemo(() => {
     return tareas.filter(t => t.estado !== 'Finalizada');
   }, [tareas]);
+
+  const comunicadosActivos = useMemo(() => {
+    return comunicados.filter(c => c.estado === 'Activo');
+  }, [comunicados]);
 
   return (
     <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8 font-sans">
@@ -206,6 +224,24 @@ const ConsultaPadres = () => {
                 {tareasActivas.length > 0 && (
                   <span className="rounded-full bg-blue-600 text-white text-[10px] font-bold px-2 py-0.5">
                     {tareasActivas.length}
+                  </span>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setPestanaActiva('comunicados')}
+                className={`pb-3 px-3 sm:px-4 font-bold text-xs sm:text-sm flex items-center gap-1.5 border-b-2 transition-all ${
+                  pestanaActiva === 'comunicados'
+                    ? 'border-blue-600 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                <span>📢</span>
+                <span>Comunicados</span>
+                {comunicadosActivos.length > 0 && (
+                  <span className="rounded-full bg-amber-500 text-white text-[10px] font-bold px-2 py-0.5">
+                    {comunicadosActivos.length}
                   </span>
                 )}
               </button>
@@ -402,9 +438,180 @@ const ConsultaPadres = () => {
               </div>
             )}
 
+            {/* CONTENIDO 3: COMUNICADOS Y REUNIONES ESCOLARES */}
+            {pestanaActiva === 'comunicados' && (
+              <div className="p-6 animate-in fade-in duration-150">
+                <div className="flex items-center justify-between mb-4 border-b pb-2">
+                  <div>
+                    <h4 className="font-bold text-gray-800 text-base">Reuniones y Comunicados Oficiales</h4>
+                    <p className="text-xs text-gray-500">Convocatorias dirigidas a {data.estudiante.nombre} y familia.</p>
+                  </div>
+                  {comunicados.length > 0 && (
+                    <span className="text-xs font-semibold text-gray-500">
+                      Total: {comunicados.length}
+                    </span>
+                  )}
+                </div>
+
+                {loadingComunicados ? (
+                  <div className="py-12 text-center text-gray-400 text-sm">
+                    <div className="mx-auto h-8 w-8 animate-spin rounded-full border-4 border-gray-300 border-t-blue-600 mb-2" />
+                    Cargando comunicados escolares...
+                  </div>
+                ) : comunicados.length === 0 ? (
+                  <div className="py-12 text-center text-gray-500">
+                    <div className="text-4xl mb-2">🎉</div>
+                    <p className="font-bold text-gray-800 text-base">¡Todo al día!</p>
+                    <p className="text-xs text-gray-500 mt-1">
+                      No hay reuniones o comunicados pendientes para el salón en este momento.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-5">
+                    {comunicados.map((item) => {
+                      const esActivo = item.estado === 'Activo';
+
+                      return (
+                        <div
+                          key={item.id}
+                          className={`rounded-2xl border transition-all overflow-hidden shadow-sm ${
+                            esActivo ? 'border-blue-200 bg-white' : 'border-gray-200 bg-gray-50 opacity-75'
+                          }`}
+                        >
+                          {/* Banner / Afiche Gráfico con visualización responsive */}
+                          {item.urlBanner && (
+                            <div 
+                              onClick={() => setModalBanner(item.urlBanner)}
+                              className="relative cursor-pointer group max-h-64 overflow-hidden bg-gray-900 border-b border-gray-200 flex items-center justify-center"
+                            >
+                              <img 
+                                src={item.urlBanner} 
+                                alt={item.titulo} 
+                                className="w-full h-full max-h-64 object-cover group-hover:scale-105 transition-all duration-300"
+                                loading="lazy"
+                              />
+                              <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
+                              <div className="absolute bottom-2.5 right-2.5 bg-black/75 backdrop-blur-sm text-white text-[11px] font-bold px-3 py-1 rounded-full shadow flex items-center gap-1.5">
+                                <span>🔍</span>
+                                <span>Toca para ver afiche completo</span>
+                              </div>
+                            </div>
+                          )}
+
+                          <div className="p-4 sm:p-5">
+                            <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                              <span className={`px-2.5 py-0.5 rounded-lg text-xs font-bold border ${
+                                item.dirigidoA === 'TODOS'
+                                  ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                  : 'bg-purple-50 text-purple-700 border-purple-200'
+                              }`}>
+                                {item.dirigidoA === 'TODOS' ? '🏫 General - Todo el Colegio' : `☀️ ${item.dirigidoA}`}
+                              </span>
+
+                              <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold border ${
+                                esActivo
+                                  ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                                  : 'bg-gray-200 text-gray-700 border-gray-300'
+                              }`}>
+                                {esActivo ? '🟢 Convocatoria Activa' : '✓ Reunión Concluida'}
+                              </span>
+                            </div>
+
+                            <h3 className="text-base font-bold text-gray-900 mb-2 leading-snug">
+                              {item.titulo}
+                            </h3>
+
+                            {/* Datos clave: Fecha, Hora y Lugar */}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 my-2.5 text-xs text-gray-700 bg-blue-50/50 p-3 rounded-xl border border-blue-100">
+                              <div className="flex items-center gap-2">
+                                <span className="font-semibold text-blue-900">📅 Fecha:</span>
+                                <strong className="text-gray-900">{item.fechaEvento}</strong>
+                              </div>
+                              {item.horaEvento && (
+                                <div className="flex items-center gap-2">
+                                  <span className="font-semibold text-blue-900">⏰ Hora:</span>
+                                  <strong className="text-gray-900">{item.horaEvento}</strong>
+                                </div>
+                              )}
+                              <div className="sm:col-span-2 flex items-center gap-2 truncate">
+                                <span className="font-semibold text-blue-900">📍 Lugar:</span>
+                                <span className="text-gray-800 truncate">{item.lugar}</span>
+                              </div>
+                            </div>
+
+                            {item.descripcion && (
+                              <div className="my-2.5 p-3.5 bg-gray-50 rounded-xl border border-gray-200 text-gray-800 text-xs sm:text-sm whitespace-pre-line leading-relaxed shadow-inner">
+                                {item.descripcion}
+                              </div>
+                            )}
+
+                            <div className="flex items-center justify-between text-xs text-gray-500 pt-2 border-t border-gray-100">
+                              <span>Publicado el: {item.fechaRegistro}</span>
+                              {item.urlBanner && (
+                                <a
+                                  href={item.urlBanner}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-blue-600 hover:text-blue-800 font-bold flex items-center gap-1"
+                                >
+                                  <span>🖼️ Ver afiche completo</span>
+                                  <span>↗</span>
+                                </a>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+
           </div>
         )}
       </div>
+
+      {/* Modal Lightbox para ampliar Banner en el Portal de Padres */}
+      {modalBanner && (
+        <div 
+          onClick={() => setModalBanner(null)}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm p-4 animate-in fade-in"
+        >
+          <div 
+            onClick={(e) => e.stopPropagation()}
+            className="relative max-w-3xl max-h-[90vh] bg-white rounded-3xl p-3 shadow-2xl overflow-hidden flex flex-col items-center"
+          >
+            <div className="w-full flex justify-between items-center pb-2 px-2 border-b border-gray-200 mb-2">
+              <span className="text-xs font-bold text-gray-900 flex items-center gap-1.5">
+                <span>🖼️</span> Afiche Oficial de la Convocatoria
+              </span>
+              <div className="flex items-center gap-2">
+                <a
+                  href={modalBanner}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs bg-blue-600 hover:bg-blue-700 text-white font-bold px-3 py-1 rounded-lg transition"
+                >
+                  Descargar original ⬇
+                </a>
+                <button
+                  onClick={() => setModalBanner(null)}
+                  className="text-gray-500 hover:text-gray-800 bg-gray-100 p-1 rounded-lg text-xs"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+            
+            <img 
+              src={modalBanner} 
+              alt="Afiche ampliado" 
+              className="max-h-[75vh] w-auto object-contain rounded-2xl shadow-md"
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 };

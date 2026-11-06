@@ -51,6 +51,17 @@ export default function Header() {
             Permisos
           </NavLink>
           <NavLink
+            to="/comunicados"
+            className={({ isActive }) =>
+              `rounded-xl px-4 py-2 text-sm font-semibold flex items-center gap-1.5 ${
+                isActive ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-blue-900/50'
+              }`
+            }
+          >
+            <span>📢</span>
+            <span>Comunicados</span>
+          </NavLink>
+          <NavLink
             to="/docentes"
             className={({ isActive }) =>
               `rounded-xl px-4 py-2 text-sm font-semibold flex items-center gap-1.5 ${

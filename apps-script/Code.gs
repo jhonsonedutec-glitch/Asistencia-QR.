@@ -15,6 +15,7 @@ const HOJA_JUSTIFICACIONES = 'Justificaciones';
 const HOJA_CALENDARIO = 'CALENDARIO_ANUAL';
 const HOJA_DOCENTES = 'BD_Docentes';
 const HOJA_TAREAS = 'Tareas_Escolares';
+const HOJA_COMUNICADOS = 'Comunicados_Escolares';
 
 // --- API DE WHATSAPP (META CLOUD API) ---
 // IMPORTANTE: Recuerda pegar aquí tu token real de Meta
@@ -90,6 +91,11 @@ function doGet(e) {
       const grado = String(e.parameter.grado || '').trim();
       const dniDocente = String(e.parameter.dniDocente || '').trim();
       return jsonResponse(obtenerTareas(grado, dniDocente));
+    }
+
+    if (action === 'obtener_comunicados') {
+      const grado = String(e.parameter.grado || '').trim();
+      return jsonResponse(obtenerComunicados(grado));
     }
 
     if (action === 'test_drive') {
@@ -171,6 +177,18 @@ function doPost(e) {
 
     if (action === 'eliminar_tarea') {
       return jsonResponse(eliminarTarea(data.idTarea));
+    }
+
+    if (action === 'registrar_comunicado') {
+      return jsonResponse(registrarComunicado(data));
+    }
+
+    if (action === 'cambiar_estado_comunicado') {
+      return jsonResponse(cambiarEstadoComunicado(data.idComunicado, data.nuevoEstado));
+    }
+
+    if (action === 'eliminar_comunicado') {
+      return jsonResponse(eliminarComunicado(data.idComunicado));
     }
 
     if (action !== 'registrar') {
@@ -1068,7 +1086,7 @@ function autorizarPermisosDrive() {
   }
 }
 
-function subirArchivoADrive(base64Data, nombreArchivo, mimeType) {
+function subirArchivoADrive(base64Data, nombreArchivo, mimeType, subcarpeta) {
   try {
     if (!base64Data) return { success: false, message: 'No hay datos de archivo.' };
     
@@ -1081,11 +1099,11 @@ function subirArchivoADrive(base64Data, nombreArchivo, mimeType) {
     const bytes = Utilities.base64Decode(base64Data);
     const tipo = mimeType || 'application/pdf';
     const tz = Session.getScriptTimeZone() || 'America/Lima';
-    const nombre = nombreArchivo || ('Material_Tarea_' + Utilities.formatDate(new Date(), tz, 'yyyyMMdd_HHmmss') + '.pdf');
+    const nombre = nombreArchivo || ('Archivo_' + Utilities.formatDate(new Date(), tz, 'yyyyMMdd_HHmmss'));
     const blob = Utilities.newBlob(bytes, tipo, nombre);
     
-    // Carpeta en Google Drive: "Tareas_Escolares_Adjuntos"
-    const nombreCarpeta = 'Tareas_Escolares_Adjuntos';
+    // Carpeta en Google Drive (por defecto Tareas_Escolares_Adjuntos o Comunicados_Banners)
+    const nombreCarpeta = subcarpeta || 'Tareas_Escolares_Adjuntos';
     const carpetas = DriveApp.getFoldersByName(nombreCarpeta);
     let carpeta;
     if (carpetas.hasNext()) {
@@ -1396,4 +1414,216 @@ function obtenerJustificacionesGAS() {
   } catch (err) {
     return { success: false, message: err.message, justificaciones: [] };
   }
+}
+
+
+// ============================================================
+// MÓDULO DE COMUNICADOS Y REUNIONES ESCOLARES (IEP MILLENIUM)
+// ============================================================
+
+function asegurarHojaComunicados() {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  let hoja = ss.getSheetByName(HOJA_COMUNICADOS);
+  const encabezados = [
+    'ID_Comunicado', 
+    'Fecha_Registro', 
+    'Titulo', 
+    'Descripcion', 
+    'Fecha_Evento', 
+    'Hora_Evento', 
+    'Lugar', 
+    'Dirigido_A', 
+    'URL_Banner', 
+    'Nombre_Banner', 
+    'Estado'
+  ];
+  if (!hoja) {
+    hoja = ss.insertSheet(HOJA_COMUNICADOS);
+    hoja.appendRow(encabezados);
+    hoja.getRange(1, 1, 1, encabezados.length).setFontWeight('bold').setBackground('#1e293b').setFontColor('#ffffff');
+    SpreadsheetApp.flush();
+  } else {
+    const ultCol = hoja.getLastColumn();
+    if (ultCol < encabezados.length) {
+      for (let c = ultCol + 1; c <= encabezados.length; c++) {
+        hoja.getRange(1, c).setValue(encabezados[c - 1]);
+      }
+      hoja.getRange(1, 1, 1, encabezados.length).setFontWeight('bold').setBackground('#1e293b').setFontColor('#ffffff');
+      SpreadsheetApp.flush();
+    }
+  }
+  return hoja;
+}
+
+function registrarComunicado(data) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const hoja = asegurarHojaComunicados();
+
+  const titulo = String(data.titulo || '').trim();
+  const descripcion = String(data.descripcion || '').trim();
+  const fechaEvento = String(data.fechaEvento || '').trim();
+  const horaEvento = String(data.horaEvento || '').trim();
+  const lugar = String(data.lugar || 'Patio Central - IEP Millenium').trim();
+  const dirigidoA = String(data.dirigidoA || 'TODOS').trim();
+
+  if (!titulo) {
+    return { success: false, message: 'Debe ingresar el título del comunicado o reunión.' };
+  }
+
+  const tz = Session.getScriptTimeZone() || 'America/Lima';
+  const ahora = new Date();
+  const fechaHoy = Utilities.formatDate(ahora, tz, 'dd/MM/yyyy');
+  const idComunicado = 'COM-' + Utilities.formatDate(ahora, tz, 'yyyyMMdd-HHmmss') + '-' + Math.floor(Math.random() * 900 + 100);
+
+  let urlBanner = '';
+  let nombreBanner = '';
+
+  if (data.banner && data.banner.base64) {
+    const resDrive = subirArchivoADrive(
+      data.banner.base64, 
+      data.banner.nombre, 
+      data.banner.tipo || 'image/jpeg', 
+      'Comunicados_Banners'
+    );
+    if (resDrive && resDrive.success) {
+      urlBanner = resDrive.idArchivo ? ('https://lh3.googleusercontent.com/d/' + resDrive.idArchivo) : resDrive.url;
+      nombreBanner = resDrive.nombre;
+    } else {
+      return {
+        success: false,
+        message: 'No se pudo subir el banner a Google Drive: ' + (resDrive ? resDrive.message : 'Error desconocido.')
+      };
+    }
+  }
+
+  hoja.appendRow([
+    idComunicado,
+    "'" + fechaHoy,
+    titulo,
+    descripcion,
+    fechaEvento ? "'" + fechaEvento : "'" + fechaHoy,
+    horaEvento ? "'" + horaEvento : '',
+    lugar,
+    dirigidoA,
+    urlBanner,
+    nombreBanner,
+    'Activo'
+  ]);
+  SpreadsheetApp.flush();
+
+  return {
+    success: true,
+    message: 'Comunicado publicado correctamente para ' + (dirigidoA === 'TODOS' ? 'todo el colegio' : dirigidoA) + '.',
+    comunicado: {
+      id: idComunicado,
+      fechaRegistro: fechaHoy,
+      titulo: titulo,
+      descripcion: descripcion,
+      fechaEvento: fechaEvento || fechaHoy,
+      horaEvento: horaEvento,
+      lugar: lugar,
+      dirigidoA: dirigidoA,
+      urlBanner: urlBanner,
+      nombreBanner: nombreBanner,
+      estado: 'Activo'
+    }
+  };
+}
+
+function obtenerComunicados(filtroGrado) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const hoja = asegurarHojaComunicados();
+  const ultFila = hoja.getLastRow();
+  if (ultFila <= 1) {
+    return { success: true, comunicados: [] };
+  }
+
+  const tz = Session.getScriptTimeZone() || 'America/Lima';
+  const datos = hoja.getRange(2, 1, ultFila - 1, Math.max(hoja.getLastColumn(), 11)).getValues();
+  const comunicados = [];
+
+  for (let i = datos.length - 1; i >= 0; i--) {
+    const id = String(datos[i][0] || '').trim();
+    if (!id) continue;
+
+    const fReg = datos[i][1];
+    const fechaRegStr = fReg instanceof Date ? Utilities.formatDate(fReg, tz, 'dd/MM/yyyy') : String(fReg || '').trim();
+
+    const titulo = String(datos[i][2] || '').trim();
+    const descripcion = String(datos[i][3] || '').trim();
+
+    const fEvt = datos[i][4];
+    const fechaEvtStr = fEvt instanceof Date ? Utilities.formatDate(fEvt, tz, 'dd/MM/yyyy') : String(fEvt || '').trim();
+
+    const hEvt = datos[i][5];
+    const horaEvtStr = hEvt instanceof Date ? Utilities.formatDate(hEvt, tz, 'HH:mm') : String(hEvt || '').trim();
+
+    const lugar = String(datos[i][6] || '').trim();
+    const dirigidoA = String(datos[i][7] || 'TODOS').trim();
+    const urlBanner = String(datos[i][8] || '').trim();
+    const nombreBanner = String(datos[i][9] || '').trim();
+    const estado = String(datos[i][10] || 'Activo').trim();
+
+    if (estado === 'Eliminado') continue;
+
+    // Filtro por grado
+    if (filtroGrado && filtroGrado !== 'TODOS') {
+      const gNorm = filtroGrado.toLowerCase().replace(/[\s-]+/g, '');
+      const dNorm = dirigidoA.toLowerCase().replace(/[\s-]+/g, '');
+      const esParaTodos = dNorm === 'todos' || dNorm === 'general' || dNorm === 'todas';
+      if (!esParaTodos && gNorm !== dNorm && !gNorm.includes(dNorm) && !dNorm.includes(gNorm)) {
+        continue;
+      }
+    }
+
+    comunicados.push({
+      id: id,
+      fechaRegistro: fechaRegStr,
+      titulo: titulo,
+      descripcion: descripcion,
+      fechaEvento: fechaEvtStr,
+      horaEvento: horaEvtStr,
+      lugar: lugar,
+      dirigidoA: dirigidoA,
+      urlBanner: urlBanner,
+      nombreBanner: nombreBanner,
+      estado: estado
+    });
+  }
+
+  return { success: true, comunicados: comunicados };
+}
+
+function cambiarEstadoComunicado(idComunicado, nuevoEstado) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const hoja = asegurarHojaComunicados();
+  const ultFila = hoja.getLastRow();
+  if (ultFila <= 1) return { success: false, message: 'Hoja vacía.' };
+
+  const ids = hoja.getRange(2, 1, ultFila - 1, 1).getValues();
+  for (let i = 0; i < ids.length; i++) {
+    if (String(ids[i][0]).trim() === idComunicado) {
+      hoja.getRange(i + 2, 11).setValue(nuevoEstado || 'Finalizado');
+      SpreadsheetApp.flush();
+      return { success: true, message: 'Estado del comunicado actualizado a ' + nuevoEstado + '.' };
+    }
+  }
+  return { success: false, message: 'Comunicado no encontrado.' };
+}
+
+function eliminarComunicado(idComunicado) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const hoja = asegurarHojaComunicados();
+  const ultFila = hoja.getLastRow();
+  if (ultFila <= 1) return { success: false, message: 'Hoja vacía.' };
+
+  const ids = hoja.getRange(2, 1, ultFila - 1, 1).getValues();
+  for (let i = 0; i < ids.length; i++) {
+    if (String(ids[i][0]).trim() === idComunicado) {
+      hoja.deleteRow(i + 2);
+      SpreadsheetApp.flush();
+      return { success: true, message: 'Comunicado eliminado correctamente.' };
+    }
+  }
+  return { success: false, message: 'Comunicado no encontrado.' };
 }

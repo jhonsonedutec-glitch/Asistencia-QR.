@@ -8,6 +8,7 @@ import Justificaciones from './pages/Justificaciones';
 import ConsultaPadres from './pages/ConsultaPadres';
 import RegistroManual from './pages/RegistroManual';
 import TareasDocentes from './pages/TareasDocentes';
+import Comunicados from './pages/Comunicados';
 
 // Layout para el área administrativa (con Header y Footer)
 const AdminLayout = ({ children }) => (
@@ -37,6 +38,7 @@ export default function App() {
           <Route path="/dashboard" element={<AdminLayout><Dashboard /></AdminLayout>} />
           <Route path="/registro-manual" element={<AdminLayout><RegistroManual /></AdminLayout>} />
           <Route path="/justificaciones" element={<AdminLayout><Justificaciones /></AdminLayout>} />
+          <Route path="/comunicados" element={<AdminLayout><Comunicados /></AdminLayout>} />
           <Route path="/generador" element={<AdminLayout><Generator /></AdminLayout>} />
           
           {/* Redirección por defecto */}

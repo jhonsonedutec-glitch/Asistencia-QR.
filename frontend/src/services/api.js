@@ -724,3 +724,41 @@ export const eliminarTarea = (idTarea, dniDocente) => request(GAS_URL, {
   headers: { 'Content-Type': 'text/plain' },
   body: JSON.stringify({ action: 'eliminar_tarea', idTarea, dniDocente })
 });
+
+
+// ============================================================
+// MÓDULO DE COMUNICADOS Y REUNIONES ESCOLARES
+// ============================================================
+
+export const obtenerComunicados = async (grado = '') => {
+  try {
+    let url = `${GAS_URL}?action=obtener_comunicados`;
+    if (grado) url += `&grado=${encodeURIComponent(grado)}`;
+    const res = await request(url).catch(() => null);
+    if (res && res.success && Array.isArray(res.comunicados)) {
+      return res;
+    }
+    return { success: true, comunicados: [] };
+  } catch (err) {
+    console.error('Error al obtener comunicados:', err);
+    return { success: false, message: err.message, comunicados: [] };
+  }
+};
+
+export const registrarComunicado = (data) => request(GAS_URL, {
+  method: 'POST',
+  headers: { 'Content-Type': 'text/plain' },
+  body: JSON.stringify({ action: 'registrar_comunicado', ...data })
+});
+
+export const cambiarEstadoComunicado = (idComunicado, nuevoEstado) => request(GAS_URL, {
+  method: 'POST',
+  headers: { 'Content-Type': 'text/plain' },
+  body: JSON.stringify({ action: 'cambiar_estado_comunicado', idComunicado, nuevoEstado })
+});
+
+export const eliminarComunicado = (idComunicado) => request(GAS_URL, {
+  method: 'POST',
+  headers: { 'Content-Type': 'text/plain' },
+  body: JSON.stringify({ action: 'eliminar_comunicado', idComunicado })
+});
