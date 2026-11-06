@@ -721,14 +721,20 @@ function obtenerGradosDisponibles() {
 }
 
 function obtenerEstudiantesPorGrado(grado) {
-  const estudiantes = actualizarCacheEstudiantes();
+  const estudiantes = actualizarCacheEstudiantes() || {};
   const lista = [];
+  const gBuscado = String(grado || '').toLowerCase().replace(/[\s-]+/g, '');
   for (const dni in estudiantes) {
-    if (String(estudiantes[dni].grado).trim() === grado) {
-      lista.push(estudiantes[dni]);
+    const est = estudiantes[dni];
+    const gEst = String(est.grado || '').trim();
+    const nEst = String(est.nivel || '').trim();
+    const comb = (nEst ? gEst + ' - ' + nEst : gEst).toLowerCase().replace(/[\s-]+/g, '');
+    const gOnly = gEst.toLowerCase().replace(/[\s-]+/g, '');
+    if (comb === gBuscado || gOnly === gBuscado) {
+      lista.push(est);
     }
   }
-  lista.sort((a, b) => a.nombre.localeCompare(b.nombre));
+  lista.sort((a, b) => (a.nombre || '').localeCompare(b.nombre || ''));
   return { success: true, estudiantes: lista };
 }
 
@@ -1363,11 +1369,7 @@ function obtenerJustificacionesGAS() {
     if (ultFila <= 1) return { success: true, justificaciones: [] };
 
     const datos = hojaJ.getRange(1, 1, ultFila, ultCol).getDisplayValues();
-    const estudiantes = actualizarCacheEstudiantes();
-    const estMap = {};
-    estudiantes.forEach(e => {
-      if (e.dni) estMap[String(e.dni).trim()] = e;
-    });
+    const estMap = actualizarCacheEstudiantes() || {};
 
     const lista = [];
     for (let i = 1; i < datos.length; i++) {
