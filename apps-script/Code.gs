@@ -1034,11 +1034,27 @@ function asegurarHojaTareas() {
 }
 
 function autorizarPermisosDrive() {
-  // Función para ejecutar una sola vez en el editor de Apps Script
-  // para que Google solicite y apruebe los permisos de Google Drive.
+  // Función para forzar a Google a solicitar y conceder el permiso completo https://www.googleapis.com/auth/drive
+  // (creación de carpetas y subida de archivos PDF).
   try {
-    const carpetas = DriveApp.getFoldersByName('Tareas_Escolares_Adjuntos');
-    Logger.log('Permisos de Drive OK. Acceso comprobado.');
+    const nombreCarpeta = 'Tareas_Escolares_Adjuntos';
+    const carpetas = DriveApp.getFoldersByName(nombreCarpeta);
+    let carpeta;
+    if (carpetas.hasNext()) {
+      carpeta = carpetas.next();
+    } else {
+      carpeta = DriveApp.createFolder(nombreCarpeta);
+    }
+    try {
+      carpeta.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    } catch (eShare) {}
+    
+    // Crear archivo temporal de prueba para validar permiso de escritura en Drive
+    const blobTest = Utilities.newBlob('OK', 'text/plain', 'test_auth.txt');
+    const fileTest = carpeta.createFile(blobTest);
+    fileTest.setTrashed(true);
+    
+    Logger.log('¡Éxito! Permisos de creación de carpetas y subida de archivos en Drive autorizados al 100%.');
     return 'Permisos de Google Drive concedidos correctamente.';
   } catch (err) {
     Logger.log('Error al autorizar Drive: ' + err.message);
