@@ -1566,14 +1566,24 @@ function obtenerComunicados(filtroGrado) {
 
     if (estado === 'Eliminado') continue;
 
-    // Filtro por grado
+    // Filtro por grado o nivel
     if (filtroGrado && filtroGrado !== 'TODOS') {
       const gNorm = filtroGrado.toLowerCase().replace(/[\s-]+/g, '');
       const dNorm = dirigidoA.toLowerCase().replace(/[\s-]+/g, '');
+      
       const esParaTodos = dNorm === 'todos' || dNorm === 'general' || dNorm === 'todas';
-      if (!esParaTodos && gNorm !== dNorm && !gNorm.includes(dNorm) && !dNorm.includes(gNorm)) {
-        continue;
-      }
+      const esParaPrimaria = dNorm === 'primaria' || dNorm === 'todoprimaria' || dNorm === 'nivelprimaria';
+      const esParaSecundaria = dNorm === 'secundaria' || dNorm === 'todosecundaria' || dNorm === 'nivelsecundaria';
+
+      const gradoEsPrimaria = gNorm.includes('primaria');
+      const gradoEsSecundaria = gNorm.includes('secundaria');
+
+      let coincide = esParaTodos;
+      if (!coincide && esParaPrimaria && gradoEsPrimaria) coincide = true;
+      if (!coincide && esParaSecundaria && gradoEsSecundaria) coincide = true;
+      if (!coincide && (gNorm === dNorm || gNorm.includes(dNorm) || dNorm.includes(gNorm))) coincide = true;
+
+      if (!coincide) continue;
     }
 
     comunicados.push({

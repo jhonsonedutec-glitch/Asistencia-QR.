@@ -3,6 +3,8 @@ import { obtenerComunicados, registrarComunicado, cambiarEstadoComunicado, elimi
 
 const GRADOS_DESTINO = [
   { valor: 'TODOS', label: '🏫 General (Todo el Colegio - Primaria y Secundaria)' },
+  { valor: 'PRIMARIA', label: '☀️ Todo Nivel Primaria (1ro a 6to)' },
+  { valor: 'SECUNDARIA', label: '🌅 Todo Nivel Secundaria (1ro a 5to)' },
   { valor: '1ro - Primaria', label: '☀️ 1ro de Primaria' },
   { valor: '2do - Primaria', label: '☀️ 2do de Primaria' },
   { valor: '3ro - Primaria', label: '☀️ 3ro de Primaria' },
@@ -29,7 +31,7 @@ export default function Comunicados() {
   const [titulo, setTitulo] = useState('');
   const [dirigidoA, setDirigidoA] = useState('TODOS');
   const [fechaEvento, setFechaEvento] = useState(getFechaHoyISO);
-  const [horaEvento, setHoraEvento] = useState('16:30');
+  const [horaEvento, setHoraEvento] = useState('4:30 pm');
   const [lugar, setLugar] = useState('Patio Central - IEP Millenium');
   const [descripcion, setDescripcion] = useState('');
 
@@ -316,10 +318,11 @@ export default function Comunicados() {
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-400 mb-1 ml-1">
-                    ⏰ Hora de Inicio
+                    ⏰ Hora de la Reunión
                   </label>
                   <input
-                    type="time"
+                    type="text"
+                    placeholder="Ej: 4:30 pm o Primaria 4:30 pm / Sec. 5:30 pm"
                     value={horaEvento}
                     onChange={(e) => setHoraEvento(e.target.value)}
                     className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white focus:border-blue-500 outline-none"
