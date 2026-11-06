@@ -519,6 +519,109 @@ export const verificarDocente = async (dni) => {
   }
 };
 
+// Calculador universal de estados de Tareas Escolares
+export const calcularEstadoTarea = (t) => {
+  if (!t) return { codigo: 'VIGENTE', label: 'Vigente', badgeClass: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30', icono: '🟢' };
+  
+  if (t.estado === 'Finalizada') {
+    return {
+      codigo: 'FINALIZADA',
+      label: 'Concluida',
+      badgeClass: 'bg-slate-700/40 text-slate-300 border-slate-600/40',
+      icono: '✓'
+    };
+  }
+
+  const parseDDMMYYYY = (fStr) => {
+    if (!fStr) return null;
+    const parts = fStr.split('/');
+    if (parts.length === 3) {
+      return new Date(Number(parts[2]), Number(parts[1]) - 1, Number(parts[0]));
+    }
+    return null;
+  };
+
+  const hoy = new Date();
+  hoy.setHours(0, 0, 0, 0);
+
+  const fechaIniDate = parseDDMMYYYY(t.fechaInicio || t.fechaRegistro);
+  const fechaEntDate = parseDDMMYYYY(t.fechaEntrega);
+
+  // 1. Actividad Programada (fecha de inicio futura)
+  if (fechaIniDate && fechaIniDate > hoy) {
+    const diffDias = Math.ceil((fechaIniDate - hoy) / (1000 * 60 * 60 * 24));
+    return {
+      codigo: 'PROGRAMADA',
+      label: `Programada (inicia en ${diffDias} ${diffDias === 1 ? 'día' : 'días'})`,
+      badgeClass: 'bg-blue-500/15 text-blue-400 border-blue-500/30 font-semibold',
+      icono: '🕒',
+      dias: diffDias
+    };
+  }
+
+  // 2. Actividades en curso / por vencer / vencidas
+  if (fechaEntDate) {
+    const diffDiasEntrega = Math.round((fechaEntDate - hoy) / (1000 * 60 * 60 * 24));
+    
+    if (diffDiasEntrega < 0) {
+      const diasPasados = Math.abs(diffDiasEntrega);
+      return {
+        codigo: 'VENCIDA',
+        label: `Vencida (${diasPasados} ${diasPasados === 1 ? 'día' : 'días'} atrás)`,
+        badgeClass: 'bg-rose-500/15 text-rose-400 border-rose-500/30 font-semibold',
+        icono: '⌛',
+        dias: diffDiasEntrega
+      };
+    }
+    
+    if (diffDiasEntrega === 0) {
+      return {
+        codigo: 'POR_VENCER',
+        label: '¡Vence Hoy!',
+        badgeClass: 'bg-amber-500/20 text-amber-300 border-amber-500/40 font-bold animate-pulse',
+        icono: '⚠️',
+        dias: 0
+      };
+    }
+
+    if (diffDiasEntrega === 1) {
+      return {
+        codigo: 'POR_VENCER',
+        label: 'Vence Mañana',
+        badgeClass: 'bg-amber-500/15 text-amber-300 border-amber-500/30 font-semibold',
+        icono: '⚠️',
+        dias: 1
+      };
+    }
+
+    if (diffDiasEntrega <= 2) {
+      return {
+        codigo: 'POR_VENCER',
+        label: `Vence en ${diffDiasEntrega} días`,
+        badgeClass: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
+        icono: '⏳',
+        dias: diffDiasEntrega
+      };
+    }
+
+    return {
+      codigo: 'VIGENTE',
+      label: `Vigente (${diffDiasEntrega} días restantes)`,
+      badgeClass: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
+      icono: '🟢',
+      dias: diffDiasEntrega
+    };
+  }
+
+  return {
+    codigo: 'VIGENTE',
+    label: 'Vigente',
+    badgeClass: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
+    icono: '🟢',
+    dias: 99
+  };
+};
+
 export const obtenerTareas = async (grado = '', dniDocente = '') => {
   try {
     let url = `${GAS_URL}?action=obtener_tareas`;
@@ -528,6 +631,9 @@ export const obtenerTareas = async (grado = '', dniDocente = '') => {
     // Intentar primero con GAS
     const res = await request(url).catch(() => null);
     if (res && res.success && Array.isArray(res.tareas)) {
+      res.tareas.forEach(t => {
+        t.infoEstado = calcularEstadoTarea(t);
+      });
       return res;
     }
 
@@ -539,8 +645,7 @@ export const obtenerTareas = async (grado = '', dniDocente = '') => {
       const lines = text.split('\n').filter(l => l.trim().length > 0);
       const headerLine = lines[0] ? lines[0].toLowerCase() : '';
 
-      // Si la hoja Tareas_Escolares no existe aun en Google Sheets, GViz devuelve por defecto
-      // la primera hoja (BD_Estudiantes con 104 alumnos). Validamos los encabezados reales de Tareas:
+      // Validamos los encabezados reales de Tareas
       if (!headerLine.includes('tarea') && !headerLine.includes('descripcion')) {
         return { success: true, tareas: [] };
       }
@@ -561,6 +666,11 @@ export const obtenerTareas = async (grado = '', dniDocente = '') => {
         const fEnt = parts[6] ? normalizarFecha(parts[6]) : '';
         const est = parts[7] ? parts[7].replace(/^"|"$/g, '').trim() : 'Activa';
         const dDoc = parts[8] ? parts[8].replace(/^"|"$/g, '').trim() : '';
+        
+        const fIni = parts[9] ? normalizarFecha(parts[9]) : fReg;
+        const urlAdjunto = parts[10] ? parts[10].replace(/^"|"$/g, '').trim() : '';
+        const nombreAdjunto = parts[11] ? parts[11].replace(/^"|"$/g, '').trim() : '';
+
         if (grado && grado !== 'TODOS') {
           const gNorm = g.toLowerCase().replace(/[\s-]+/g, '');
           const fNorm = grado.toLowerCase().replace(/[\s-]+/g, '');
@@ -570,17 +680,22 @@ export const obtenerTareas = async (grado = '', dniDocente = '') => {
         }
         if (dniDocente && dDoc && dDoc !== dniDocente) continue;
 
-        tareas.push({
+        const itemTarea = {
           id,
           fechaRegistro: fReg,
+          fechaInicio: fIni || fReg,
           grado: g,
           curso: c,
           docente: doc,
           descripcion: desc,
           fechaEntrega: fEnt,
           estado: est,
-          dniDocente: dDoc
-        });
+          dniDocente: dDoc,
+          urlAdjunto,
+          nombreAdjunto
+        };
+        itemTarea.infoEstado = calcularEstadoTarea(itemTarea);
+        tareas.push(itemTarea);
       }
       return { success: true, tareas: tareas.reverse() };
     }

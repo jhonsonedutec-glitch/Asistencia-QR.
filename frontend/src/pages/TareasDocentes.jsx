@@ -1,5 +1,12 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { verificarDocente, obtenerTareas, registrarTarea, finalizarTarea, eliminarTarea } from '../services/api';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { 
+  verificarDocente, 
+  obtenerTareas, 
+  registrarTarea, 
+  finalizarTarea, 
+  eliminarTarea,
+  calcularEstadoTarea 
+} from '../services/api';
 
 const STORAGE_KEY_DOCENTE = 'sesion_dni_docente';
 const STORAGE_KEY_DOCENTE_DATA = 'sesion_data_docente';
@@ -77,6 +84,23 @@ const GRADOS_SECUNDARIA = [
   '5to - Secundaria'
 ];
 
+const getFechaHoyISO = () => {
+  const hoy = new Date();
+  const y = hoy.getFullYear();
+  const m = String(hoy.getMonth() + 1).padStart(2, '0');
+  const d = String(hoy.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+};
+
+const getFechaMananaISO = () => {
+  const m = new Date();
+  m.setDate(m.getDate() + 1);
+  const y = m.getFullYear();
+  const mes = String(m.getMonth() + 1).padStart(2, '0');
+  const d = String(m.getDate()).padStart(2, '0');
+  return `${y}-${mes}-${d}`;
+};
+
 export default function TareasDocentes() {
   const [docente, setDocente] = useState(() => {
     try {
@@ -103,14 +127,12 @@ export default function TareasDocentes() {
   const [cursoSelect, setCursoSelect] = useState('Álgebra');
   const [cursoOtro, setCursoOtro] = useState('');
   const [descripcion, setDescripcion] = useState('');
-  const [fechaEntrega, setFechaEntrega] = useState(() => {
-    const manana = new Date();
-    manana.setDate(manana.getDate() + 1);
-    const y = manana.getFullYear();
-    const m = String(manana.getMonth() + 1).padStart(2, '0');
-    const d = String(manana.getDate()).padStart(2, '0');
-    return `${y}-${m}-${d}`;
-  });
+  const [fechaInicio, setFechaInicio] = useState(getFechaHoyISO);
+  const [fechaEntrega, setFechaEntrega] = useState(getFechaMananaISO);
+  
+  // Archivo PDF adjunto
+  const [archivoPdf, setArchivoPdf] = useState(null);
+  const fileInputRef = useRef(null);
 
   const [submitting, setSubmitting] = useState(false);
   const [mensaje, setMensaje] = useState(null);
@@ -119,7 +141,11 @@ export default function TareasDocentes() {
   const [tareas, setTareas] = useState([]);
   const [loadingTareas, setLoadingTareas] = useState(false);
 
-  // Soporte PWA: Instalación independiente
+  // Filtros del historial de tareas
+  const [filtroEstado, setFiltroEstado] = useState('TODAS');
+  const [busqueda, setBusqueda] = useState('');
+
+  // Soporte PWA
   const [deferredPrompt, setDeferredPrompt] = useState(null);
   const [instalable, setInstalable] = useState(false);
   const [isIOS, setIsIOS] = useState(false);
@@ -129,7 +155,6 @@ export default function TareasDocentes() {
   useEffect(() => {
     document.title = 'Agenda Docente | IEP Millenium';
     
-    // Cambiar dinámicamente manifest y apple-touch-icon para que apunte a Tareas
     let manifestLink = document.querySelector("link[rel='manifest']");
     const originalManifest = manifestLink ? manifestLink.getAttribute('href') : '/manifest.json';
     if (manifestLink) {
@@ -142,7 +167,6 @@ export default function TareasDocentes() {
       appleIcon.setAttribute('href', '/tareas.png');
     }
 
-    // Detectar soporte de instalación PWA en Android / Chrome
     const handleBeforeInstall = (e) => {
       e.preventDefault();
       setDeferredPrompt(e);
@@ -150,7 +174,6 @@ export default function TareasDocentes() {
     };
     window.addEventListener('beforeinstallprompt', handleBeforeInstall);
 
-    // Detectar iOS Safari
     const userAgent = window.navigator.userAgent.toLowerCase();
     const isIosDevice = /iphone|ipad|ipod/.test(userAgent);
     const isInStandaloneMode = ('standalone' in window.navigator) && window.navigator.standalone;
@@ -164,7 +187,6 @@ export default function TareasDocentes() {
       window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
     };
   }, []);
-
 
   // Cargar tareas al tener sesión de docente activa
   const cargarTareas = useCallback(async () => {
@@ -223,6 +245,44 @@ export default function TareasDocentes() {
     localStorage.removeItem(STORAGE_KEY_DOCENTE_DATA);
   };
 
+  // Manejo de carga de PDF
+  const handleArchivoChange = (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+
+    if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
+      setMensaje({ tipo: 'error', texto: 'Solo se permiten archivos en formato PDF (.pdf).' });
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
+    // Límite de 10 MB
+    if (file.size > 10 * 1024 * 1024) {
+      setMensaje({ tipo: 'error', texto: 'El archivo PDF supera el tamaño máximo permitido de 10 MB.' });
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      setArchivoPdf({
+        nombre: file.name,
+        tamano: (file.size / (1024 * 1024)).toFixed(2) + ' MB',
+        base64: reader.result
+      });
+      setMensaje(null);
+    };
+    reader.onerror = () => {
+      setMensaje({ tipo: 'error', texto: 'Error al leer el archivo PDF seleccionado.' });
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleQuitarArchivo = () => {
+    setArchivoPdf(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
   // Publicar Tarea
   const handleSubmitTarea = async (e) => {
     e.preventDefault();
@@ -241,7 +301,13 @@ export default function TareasDocentes() {
       return;
     }
 
-    // Formatear fecha entrega a dd/MM/yyyy
+    // Formatear fechas a dd/MM/yyyy
+    let fInicioFormateada = '';
+    if (fechaInicio) {
+      const [y, m, d] = fechaInicio.split('-');
+      fInicioFormateada = `${d}/${m}/${y}`;
+    }
+
     let fEntregaFormateada = '';
     if (fechaEntrega) {
       const [y, m, d] = fechaEntrega.split('-');
@@ -258,12 +324,22 @@ export default function TareasDocentes() {
         grado: grado,
         curso: cursoFinal,
         descripcion: descripcion.trim(),
-        fechaEntrega: fEntregaFormateada
+        fechaInicio: fInicioFormateada,
+        fechaEntrega: fEntregaFormateada,
+        archivo: archivoPdf ? {
+          base64: archivoPdf.base64,
+          nombre: archivoPdf.nombre,
+          tipo: 'application/pdf'
+        } : null
       });
 
       if (res && res.success) {
-        setMensaje({ tipo: 'success', texto: `✅ Tarea de ${cursoFinal} publicada para ${grado}.` });
+        setMensaje({ 
+          tipo: 'success', 
+          texto: `✅ Tarea de ${cursoFinal} publicada para ${grado}${archivoPdf ? ' con PDF adjunto.' : '.'}` 
+        });
         setDescripcion('');
+        handleQuitarArchivo();
         if (esOtro) setCursoOtro('');
         await cargarTareas();
       } else {
@@ -278,7 +354,7 @@ export default function TareasDocentes() {
 
   // Marcar como Finalizada
   const handleFinalizar = async (idTarea) => {
-    if (!window.confirm('¿Deseas marcar esta tarea como finalizada / concluida?')) return;
+    if (!window.confirm('¿Deseas marcar esta tarea como concluida / finalizada?')) return;
     try {
       await finalizarTarea(idTarea, docente.dni);
       cargarTareas();
@@ -311,6 +387,42 @@ export default function TareasDocentes() {
       setShowIosGuide(true);
     }
   };
+
+  // Procesar tareas con estados calculados
+  const tareasConEstado = useMemo(() => {
+    return tareas.map(t => ({
+      ...t,
+      infoEstado: t.infoEstado || calcularEstadoTarea(t)
+    }));
+  }, [tareas]);
+
+  // Contadores por categoría de estado
+  const contadores = useMemo(() => {
+    const c = { TODAS: tareasConEstado.length, PROGRAMADA: 0, VIGENTE: 0, POR_VENCER: 0, VENCIDA: 0, FINALIZADA: 0 };
+    tareasConEstado.forEach(t => {
+      const cod = t.infoEstado?.codigo;
+      if (cod && c[cod] !== undefined) c[cod]++;
+    });
+    return c;
+  }, [tareasConEstado]);
+
+  // Filtrado reactivo de tareas
+  const tareasFiltradas = useMemo(() => {
+    return tareasConEstado.filter(t => {
+      if (filtroEstado !== 'TODAS' && t.infoEstado?.codigo !== filtroEstado) {
+        return false;
+      }
+      if (busqueda.trim()) {
+        const q = busqueda.toLowerCase();
+        const enCurso = (t.curso || '').toLowerCase().includes(q);
+        const enGrado = (t.grado || '').toLowerCase().includes(q);
+        const enDesc = (t.descripcion || '').toLowerCase().includes(q);
+        const enNombreAdj = (t.nombreAdjunto || '').toLowerCase().includes(q);
+        return enCurso || enGrado || enDesc || enNombreAdj;
+      }
+      return true;
+    });
+  }, [tareasConEstado, filtroEstado, busqueda]);
 
   // ==========================================
   // PANTALLA 1: LOGIN CON DNI DEL DOCENTE
@@ -441,7 +553,7 @@ export default function TareasDocentes() {
   // ==========================================
   return (
     <main className="min-h-screen bg-slate-950 px-4 py-8 font-sans text-slate-100">
-      <div className="mx-auto max-w-4xl">
+      <div className="mx-auto max-w-6xl">
         
         {/* Barra superior del Docente */}
         <div className="rounded-3xl border border-blue-900/40 bg-gradient-to-r from-slate-900 via-slate-900 to-blue-950/40 p-5 shadow-2xl mb-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -559,15 +671,87 @@ export default function TareasDocentes() {
                 )}
               </div>
 
-              {/* Fecha de Entrega */}
+              {/* Fechas de Programación y Entrega en 2 columnas */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-400 mb-1 ml-1">
+                    📅 Fecha de Inicio / Programación
+                  </label>
+                  <input
+                    type="date"
+                    value={fechaInicio}
+                    onChange={(e) => setFechaInicio(e.target.value)}
+                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white focus:border-blue-500 outline-none"
+                  />
+                  <p className="text-[10px] text-slate-500 mt-1 ml-1">
+                    {fechaInicio > getFechaHoyISO() ? '🕒 Actividad que iniciará a futuro' : 'Asignada desde hoy'}
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-400 mb-1 ml-1">
+                    ⏰ Fecha de Entrega Límite
+                  </label>
+                  <input
+                    type="date"
+                    value={fechaEntrega}
+                    min={fechaInicio || undefined}
+                    onChange={(e) => setFechaEntrega(e.target.value)}
+                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white focus:border-blue-500 outline-none"
+                  />
+                  <p className="text-[10px] text-slate-500 mt-1 ml-1">
+                    Plazo de presentación
+                  </p>
+                </div>
+              </div>
+
+              {/* Adjuntar Ficha / Documento PDF */}
               <div>
-                <label className="block text-xs font-semibold text-slate-400 mb-1 ml-1">Fecha de Entrega / Presentación</label>
+                <label className="block text-xs font-semibold text-slate-400 mb-1 ml-1">
+                  📎 Adjuntar Documento o Ficha en PDF (Opcional)
+                </label>
+                
                 <input
-                  type="date"
-                  value={fechaEntrega}
-                  onChange={(e) => setFechaEntrega(e.target.value)}
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white focus:border-blue-500 outline-none"
+                  type="file"
+                  accept="application/pdf,.pdf"
+                  ref={fileInputRef}
+                  onChange={handleArchivoChange}
+                  className="hidden"
+                  id="input-pdf-docente"
                 />
+
+                {!archivoPdf ? (
+                  <label
+                    htmlFor="input-pdf-docente"
+                    className="flex flex-col items-center justify-center border-2 border-dashed border-slate-700 hover:border-blue-500 bg-slate-950/50 hover:bg-blue-950/20 rounded-2xl p-3.5 cursor-pointer transition text-center group"
+                  >
+                    <span className="text-2xl mb-1 group-hover:scale-110 transition">📄</span>
+                    <span className="text-xs font-semibold text-slate-300 group-hover:text-blue-300">
+                      Toca para adjuntar archivo PDF
+                    </span>
+                    <span className="text-[10px] text-slate-500 mt-0.5">
+                      Fichas de trabajo, lecturas, separatas (Máx. 10 MB)
+                    </span>
+                  </label>
+                ) : (
+                  <div className="flex items-center justify-between p-3 rounded-2xl bg-blue-950/40 border border-blue-500/40 shadow-inner">
+                    <div className="flex items-center gap-2.5 overflow-hidden">
+                      <span className="text-2xl">📄</span>
+                      <div className="truncate text-left">
+                        <p className="text-xs font-bold text-blue-200 truncate">{archivoPdf.nombre}</p>
+                        <p className="text-[10px] text-blue-400">{archivoPdf.tamano} • Listo para subir a Drive</p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleQuitarArchivo}
+                      className="ml-2 text-slate-400 hover:text-rose-400 bg-slate-900/80 hover:bg-rose-950/40 p-1.5 rounded-lg border border-slate-700 hover:border-rose-500/40 transition"
+                      title="Quitar archivo"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* Descripción de la Tarea en Solo Texto */}
@@ -597,7 +781,7 @@ export default function TareasDocentes() {
                 {submitting ? (
                   <>
                     <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-                    Publicando tarea...
+                    {archivoPdf ? 'Subiendo PDF y publicando tarea...' : 'Publicando tarea...'}
                   </>
                 ) : (
                   <>
@@ -611,7 +795,7 @@ export default function TareasDocentes() {
 
           {/* Listado de Tareas Publicadas (Columna Derecha) */}
           <section className="lg:col-span-7 rounded-3xl border border-slate-800 bg-slate-900/70 p-6 shadow-xl backdrop-blur-md flex flex-col">
-            <div className="flex items-center justify-between mb-4 border-b border-slate-800 pb-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 border-b border-slate-800 pb-3">
               <div className="flex items-center gap-2">
                 <span className="text-xl">📚</span>
                 <h2 className="text-lg font-bold text-white">Tareas Registradas</h2>
@@ -619,13 +803,57 @@ export default function TareasDocentes() {
                   {tareas.length}
                 </span>
               </div>
-              <button
-                onClick={cargarTareas}
-                disabled={loadingTareas}
-                className="text-xs text-blue-400 hover:text-blue-300 font-semibold"
-              >
-                {loadingTareas ? 'Cargando...' : '🔄 Actualizar'}
-              </button>
+              
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={cargarTareas}
+                  disabled={loadingTareas}
+                  className="text-xs text-blue-400 hover:text-blue-300 font-semibold flex items-center gap-1 bg-slate-950 px-2.5 py-1.5 rounded-lg border border-slate-800"
+                >
+                  <span>🔄</span>
+                  <span>{loadingTareas ? 'Cargando...' : 'Actualizar'}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Pestañas de Filtros por Estado */}
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-2 mb-3 text-xs scrollbar-thin">
+              {[
+                { id: 'TODAS', label: 'Todas', cant: contadores.TODAS },
+                { id: 'PROGRAMADA', label: '🕒 Programadas', cant: contadores.PROGRAMADA },
+                { id: 'VIGENTE', label: '🟢 Vigentes', cant: contadores.VIGENTE },
+                { id: 'POR_VENCER', label: '⚠️ Por Vencer', cant: contadores.POR_VENCER },
+                { id: 'VENCIDA', label: '⌛ Vencidas', cant: contadores.VENCIDA },
+                { id: 'FINALIZADA', label: '✓ Concluidas', cant: contadores.FINALIZADA }
+              ].map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => setFiltroEstado(tab.id)}
+                  className={`px-3 py-1.5 rounded-xl font-medium whitespace-nowrap transition-all flex items-center gap-1.5 border ${
+                    filtroEstado === tab.id
+                      ? 'bg-blue-600 border-blue-500 text-white shadow-md'
+                      : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+                  }`}
+                >
+                  <span>{tab.label}</span>
+                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                    filtroEstado === tab.id ? 'bg-white/20 text-white' : 'bg-slate-800 text-slate-400'
+                  }`}>
+                    {tab.cant}
+                  </span>
+                </button>
+              ))}
+            </div>
+
+            {/* Barra de Búsqueda Rápida */}
+            <div className="mb-3.5">
+              <input
+                type="text"
+                placeholder="🔍 Filtrar por curso, grado, tema o archivo PDF..."
+                value={busqueda}
+                onChange={(e) => setBusqueda(e.target.value)}
+                className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:border-blue-500 outline-none"
+              />
             </div>
 
             {loadingTareas && (
@@ -634,23 +862,31 @@ export default function TareasDocentes() {
               </div>
             )}
 
-            {!loadingTareas && tareas.length === 0 && (
+            {!loadingTareas && tareasFiltradas.length === 0 && (
               <div className="py-16 text-center text-slate-500">
                 <div className="text-4xl mb-2">📝</div>
-                <p className="font-bold text-white text-base">No hay tareas publicadas aún</p>
-                <p className="text-xs text-slate-400 mt-1">Usa el formulario para publicar la primera tarea para tus alumnos.</p>
+                <p className="font-bold text-white text-base">
+                  {busqueda || filtroEstado !== 'TODAS' ? 'No hay tareas con ese filtro' : 'No hay tareas publicadas aún'}
+                </p>
+                <p className="text-xs text-slate-400 mt-1">
+                  {busqueda || filtroEstado !== 'TODAS'
+                    ? 'Intenta cambiar de pestaña o borrar el término de búsqueda.' 
+                    : 'Usa el formulario para publicar la primera tarea para tus alumnos.'}
+                </p>
               </div>
             )}
 
-            {!loadingTareas && tareas.length > 0 && (
+            {!loadingTareas && tareasFiltradas.length > 0 && (
               <div className="space-y-3.5 overflow-y-auto max-h-[550px] pr-1 custom-scrollbar">
-                {tareas.map((t) => {
-                  const esActiva = t.estado === 'Activa';
+                {tareasFiltradas.map((t) => {
+                  const estadoInfo = t.infoEstado || calcularEstadoTarea(t);
+                  const esFinalizada = t.estado === 'Finalizada';
+
                   return (
                     <div
                       key={t.id}
                       className={`rounded-2xl border p-4 transition-all ${
-                        esActiva 
+                        !esFinalizada 
                           ? 'border-slate-700/80 bg-slate-900/80 hover:border-slate-600 shadow-md' 
                           : 'border-slate-800/50 bg-slate-950/40 opacity-70'
                       }`}
@@ -664,12 +900,11 @@ export default function TareasDocentes() {
                             🏫 {t.grado}
                           </span>
                         </div>
-                        <span className={`rounded-full px-2.5 py-0.5 text-xs font-bold border ${
-                          esActiva 
-                            ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' 
-                            : 'bg-slate-700/30 text-slate-400 border-slate-600/30'
-                        }`}>
-                          {esActiva ? '🟢 Vigente' : '✓ Finalizada'}
+
+                        {/* Badge de Estado Dinámico */}
+                        <span className={`rounded-full px-2.5 py-0.5 text-xs font-bold border flex items-center gap-1 ${estadoInfo.badgeClass}`}>
+                          <span>{estadoInfo.icono}</span>
+                          <span>{estadoInfo.label}</span>
                         </span>
                       </div>
 
@@ -677,17 +912,38 @@ export default function TareasDocentes() {
                         {t.descripcion}
                       </p>
 
+                      {/* Botón de Enlace al Documento PDF Adjunto si existe */}
+                      {t.urlAdjunto && (
+                        <div className="mb-2.5 pt-1">
+                          <a
+                            href={t.urlAdjunto}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-blue-900/40 to-indigo-900/40 hover:from-blue-800/50 hover:to-indigo-800/50 border border-blue-500/40 px-3 py-1.5 text-xs font-semibold text-blue-200 shadow transition group"
+                          >
+                            <span className="text-base group-hover:scale-110 transition">📄</span>
+                            <span className="truncate max-w-[220px]">
+                              {t.nombreAdjunto || 'Ver Documento PDF'}
+                            </span>
+                            <span className="text-[10px] text-blue-400 group-hover:translate-x-0.5 transition">↗ Abrir</span>
+                          </a>
+                        </div>
+                      )}
+
                       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 mt-3 pt-2 border-t border-slate-800/60 text-xs text-slate-400">
-                        <div className="flex items-center gap-3">
-                          <span className="text-amber-300 font-semibold">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {t.fechaInicio && (
+                            <span className="text-slate-300 font-medium bg-slate-950 px-2 py-0.5 rounded border border-slate-800">
+                              📅 Inicio: {t.fechaInicio}
+                            </span>
+                          )}
+                          <span className="text-amber-300 font-semibold bg-amber-950/30 px-2 py-0.5 rounded border border-amber-800/40">
                             ⏰ Entrega: <strong>{t.fechaEntrega}</strong>
                           </span>
-                          <span>•</span>
-                          <span>Publicado: {t.fechaRegistro}</span>
                         </div>
 
                         <div className="flex items-center gap-2 self-end sm:self-auto">
-                          {esActiva && (
+                          {!esFinalizada && (
                             <button
                               onClick={() => handleFinalizar(t.id)}
                               className="text-xs bg-emerald-600/15 text-emerald-400 border border-emerald-500/30 px-2.5 py-1 rounded-lg hover:bg-emerald-600/25 transition"

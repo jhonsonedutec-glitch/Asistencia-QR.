@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { obtenerHistorialPadre, obtenerTareas, getFechaHoyLocal, normalizarFecha } from '../services/api';
+import { obtenerHistorialPadre, obtenerTareas, getFechaHoyLocal, normalizarFecha, calcularEstadoTarea } from '../services/api';
 
 const STORAGE_KEY = 'ultimo_dni_padre';
 
@@ -90,7 +90,7 @@ const ConsultaPadres = () => {
   const justificados = data?.estadisticas?.justificados ?? data?.historial?.filter(r => r.estado === 'Justificado').length ?? 0;
 
   const tareasActivas = useMemo(() => {
-    return tareas.filter(t => t.estado === 'Activa');
+    return tareas.filter(t => t.estado !== 'Finalizada');
   }, [tareas]);
 
   return (
@@ -319,12 +319,14 @@ const ConsultaPadres = () => {
                 ) : (
                   <div className="space-y-4">
                     {tareas.map((t) => {
-                      const esActiva = t.estado === 'Activa';
+                      const esFinalizada = t.estado === 'Finalizada';
+                      const estadoInfo = t.infoEstado || calcularEstadoTarea(t);
+
                       return (
                         <div 
                           key={t.id} 
                           className={`rounded-xl border p-4.5 transition-all ${
-                            esActiva 
+                            !esFinalizada 
                               ? 'bg-blue-50/40 border-blue-200/80 shadow-sm' 
                               : 'bg-gray-50 border-gray-200 opacity-75'
                           }`}
@@ -338,12 +340,21 @@ const ConsultaPadres = () => {
                                 {t.docente}
                               </span>
                             </div>
-                            <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${
-                              esActiva 
-                                ? 'bg-amber-100 text-amber-800 border border-amber-200' 
-                                : 'bg-gray-200 text-gray-700'
+
+                            {/* Badge de Estado Dinámico */}
+                            <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold border flex items-center gap-1 ${
+                              estadoInfo.codigo === 'VENCIDA'
+                                ? 'bg-rose-100 text-rose-800 border-rose-300'
+                                : estadoInfo.codigo === 'POR_VENCER'
+                                ? 'bg-amber-100 text-amber-900 border-amber-300'
+                                : estadoInfo.codigo === 'PROGRAMADA'
+                                ? 'bg-blue-100 text-blue-800 border-blue-300'
+                                : estadoInfo.codigo === 'FINALIZADA'
+                                ? 'bg-gray-200 text-gray-700 border-gray-300'
+                                : 'bg-emerald-100 text-emerald-800 border-emerald-300'
                             }`}>
-                              {esActiva ? '⏳ Pendiente' : '✓ Revisada'}
+                              <span>{estadoInfo.icono}</span>
+                              <span>{estadoInfo.label}</span>
                             </span>
                           </div>
 
@@ -351,10 +362,36 @@ const ConsultaPadres = () => {
                             {t.descripcion}
                           </div>
 
-                          <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500 pt-1">
-                            <span className="font-semibold text-amber-800 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
-                              ⏰ Fecha de Entrega: <strong>{t.fechaEntrega}</strong>
-                            </span>
+                          {/* Botón de Descarga / Vista de Ficha PDF Adjunta */}
+                          {t.urlAdjunto && (
+                            <div className="my-3 p-3 bg-blue-50/70 rounded-xl border border-blue-200 flex flex-wrap items-center justify-between gap-2.5 shadow-sm">
+                              <a
+                                href={t.urlAdjunto}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold px-4 py-2 text-xs shadow-md hover:shadow-lg transition-all"
+                              >
+                                <span className="text-sm">📄</span>
+                                <span>Descargar / Ver Ficha PDF</span>
+                                <span>⬇</span>
+                              </a>
+                              <span className="text-[11px] text-gray-600 font-mono truncate max-w-[220px]">
+                                📎 {t.nombreAdjunto || 'ficha_adjunta.pdf'}
+                              </span>
+                            </div>
+                          )}
+
+                          <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500 pt-2 border-t border-gray-100">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              {t.fechaInicio && (
+                                <span className="text-gray-600 bg-gray-100 px-2 py-0.5 rounded border border-gray-200">
+                                  📅 Inicio: {t.fechaInicio}
+                                </span>
+                              )}
+                              <span className="font-semibold text-amber-900 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                                ⏰ Entrega límite: <strong>{t.fechaEntrega}</strong>
+                              </span>
+                            </div>
                             <span>Publicado el: {t.fechaRegistro}</span>
                           </div>
                         </div>

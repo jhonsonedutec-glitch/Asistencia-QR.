@@ -1010,13 +1010,69 @@ function asegurarHojaDocentes() {
 function asegurarHojaTareas() {
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   let hoja = ss.getSheetByName(HOJA_TAREAS);
+  const encabezados = ['ID_Tarea', 'Fecha_Registro', 'Grado_Nivel', 'Curso_Materia', 'Docente', 'Descripcion', 'Fecha_Entrega', 'Estado', 'DNI_Docente', 'Fecha_Inicio', 'URL_Adjunto', 'Nombre_Adjunto'];
   if (!hoja) {
     hoja = ss.insertSheet(HOJA_TAREAS);
-    hoja.appendRow(['ID_Tarea', 'Fecha_Registro', 'Grado_Nivel', 'Curso_Materia', 'Docente', 'Descripcion', 'Fecha_Entrega', 'Estado', 'DNI_Docente']);
-    hoja.getRange(1, 1, 1, 9).setFontWeight('bold').setBackground('#1e293b').setFontColor('#ffffff');
+    hoja.appendRow(encabezados);
+    hoja.getRange(1, 1, 1, encabezados.length).setFontWeight('bold').setBackground('#1e293b').setFontColor('#ffffff');
     SpreadsheetApp.flush();
+  } else {
+    const ultCol = hoja.getLastColumn();
+    if (ultCol < encabezados.length) {
+      for (let c = ultCol + 1; c <= encabezados.length; c++) {
+        hoja.getRange(1, c).setValue(encabezados[c - 1]);
+      }
+      hoja.getRange(1, 1, 1, encabezados.length).setFontWeight('bold').setBackground('#1e293b').setFontColor('#ffffff');
+      SpreadsheetApp.flush();
+    }
   }
   return hoja;
+}
+
+function subirArchivoADrive(base64Data, nombreArchivo, mimeType) {
+  try {
+    if (!base64Data) return { success: false, message: 'No hay datos de archivo.' };
+    
+    // Limpiar prefijo data URL si existe
+    if (base64Data.indexOf(',') !== -1) {
+      base64Data = base64Data.split(',')[1];
+    }
+    
+    const bytes = Utilities.base64Decode(base64Data);
+    const tipo = mimeType || 'application/pdf';
+    const tz = Session.getScriptTimeZone() || 'America/Lima';
+    const nombre = nombreArchivo || ('Material_Tarea_' + Utilities.formatDate(new Date(), tz, 'yyyyMMdd_HHmmss') + '.pdf');
+    const blob = Utilities.newBlob(bytes, tipo, nombre);
+    
+    // Carpeta en Google Drive: "Tareas_Escolares_Adjuntos"
+    const nombreCarpeta = 'Tareas_Escolares_Adjuntos';
+    const carpetas = DriveApp.getFoldersByName(nombreCarpeta);
+    let carpeta;
+    if (carpetas.hasNext()) {
+      carpeta = carpetas.next();
+    } else {
+      carpeta = DriveApp.createFolder(nombreCarpeta);
+      try {
+        carpeta.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+      } catch (eShare) {}
+    }
+    
+    const archivo = carpeta.createFile(blob);
+    try {
+      archivo.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    } catch (eShare) {}
+    
+    const url = archivo.getUrl();
+    return {
+      success: true,
+      url: url,
+      nombre: nombre,
+      idArchivo: archivo.getId()
+    };
+  } catch (err) {
+    Logger.log('Error al subir archivo a Drive: ' + err.message);
+    return { success: false, message: 'Error en Google Drive: ' + err.message };
+  }
 }
 
 function verificarDocente(dni) {
@@ -1061,7 +1117,7 @@ function obtenerTareas(gradoFiltro, dniDocente) {
   }
 
   const tz = Session.getScriptTimeZone() || 'America/Lima';
-  const datos = hoja.getRange(2, 1, ultFila - 1, Math.max(hoja.getLastColumn(), 9)).getValues();
+  const datos = hoja.getRange(2, 1, ultFila - 1, Math.max(hoja.getLastColumn(), 12)).getValues();
   const tareas = [];
 
   for (let i = datos.length - 1; i >= 0; i--) {
@@ -1082,6 +1138,11 @@ function obtenerTareas(gradoFiltro, dniDocente) {
     const estado = String(datos[i][7] || 'Activa').trim();
     const dniD = String(datos[i][8] || '').trim();
 
+    const fIni = datos[i][9];
+    const fechaIniStr = fIni instanceof Date ? Utilities.formatDate(fIni, tz, 'dd/MM/yyyy') : String(fIni || fechaRegStr).trim();
+    const urlAdjunto = String(datos[i][10] || '').trim();
+    const nombreAdjunto = String(datos[i][11] || '').trim();
+
     if (gradoFiltro && gradoFiltro !== 'TODOS') {
       const gNorm = grado.toLowerCase().replace(/[\s-]+/g, '');
       const fNorm = gradoFiltro.toLowerCase().replace(/[\s-]+/g, '');
@@ -1097,13 +1158,16 @@ function obtenerTareas(gradoFiltro, dniDocente) {
     tareas.push({
       id: id,
       fechaRegistro: fechaRegStr,
+      fechaInicio: fechaIniStr || fechaRegStr,
       grado: grado,
       curso: curso,
       docente: docente,
       descripcion: descripcion,
       fechaEntrega: fechaEntStr,
       estado: estado,
-      dniDocente: dniD
+      dniDocente: dniD,
+      urlAdjunto: urlAdjunto,
+      nombreAdjunto: nombreAdjunto
     });
   }
 
@@ -1139,6 +1203,18 @@ function registrarTarea(data) {
   const fechaHoy = Utilities.formatDate(ahora, tz, 'dd/MM/yyyy');
   const idTarea = 'TAR-' + Utilities.formatDate(ahora, tz, 'yyyyMMdd-HHmmss') + '-' + Math.floor(Math.random() * 900 + 100);
 
+  const fechaInicio = String(data.fechaInicio || data.fechaRegistro || fechaHoy).trim();
+  let urlAdjunto = '';
+  let nombreAdjunto = '';
+
+  if (data.archivo && data.archivo.base64) {
+    const resDrive = subirArchivoADrive(data.archivo.base64, data.archivo.nombre, data.archivo.tipo);
+    if (resDrive && resDrive.success) {
+      urlAdjunto = resDrive.url;
+      nombreAdjunto = resDrive.nombre;
+    }
+  }
+
   hoja.appendRow([
     idTarea,
     "'" + fechaHoy,
@@ -1148,23 +1224,29 @@ function registrarTarea(data) {
     descripcion,
     fechaEntrega ? "'" + fechaEntrega : "'" + fechaHoy,
     'Activa',
-    dniDocente
+    dniDocente,
+    fechaInicio ? "'" + fechaInicio : "'" + fechaHoy,
+    urlAdjunto,
+    nombreAdjunto
   ]);
   SpreadsheetApp.flush();
 
   return {
     success: true,
-    message: 'Tarea publicada correctamente para ' + grado + '.',
+    message: 'Tarea publicada correctamente para ' + grado + (urlAdjunto ? ' con archivo PDF adjunto.' : '.'),
     tarea: {
       id: idTarea,
       fechaRegistro: fechaHoy,
+      fechaInicio: fechaInicio || fechaHoy,
       grado: grado,
       curso: curso,
       docente: nombreDocente,
       descripcion: descripcion,
       fechaEntrega: fechaEntrega || fechaHoy,
       estado: 'Activa',
-      dniDocente: dniDocente
+      dniDocente: dniDocente,
+      urlAdjunto: urlAdjunto,
+      nombreAdjunto: nombreAdjunto
     }
   };
 }
