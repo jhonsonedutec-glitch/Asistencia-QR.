@@ -334,9 +334,10 @@ export default function TareasDocentes() {
       });
 
       if (res && res.success) {
+        const tieneAdjunto = Boolean(res.tarea?.urlAdjunto);
         setMensaje({ 
           tipo: 'success', 
-          texto: `✅ Tarea de ${cursoFinal} publicada para ${grado}${archivoPdf ? ' con PDF adjunto.' : '.'}` 
+          texto: `✅ Tarea de ${cursoFinal} publicada para ${grado}${tieneAdjunto ? ' con PDF adjunto.' : '.'}` 
         });
         setDescripcion('');
         handleQuitarArchivo();
@@ -817,7 +818,7 @@ export default function TareasDocentes() {
             </div>
 
             {/* Pestañas de Filtros por Estado */}
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-2 mb-3 text-xs scrollbar-thin">
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-2 mb-3 text-xs [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
               {[
                 { id: 'TODAS', label: 'Todas', cant: contadores.TODAS },
                 { id: 'PROGRAMADA', label: '🕒 Programadas', cant: contadores.PROGRAMADA },

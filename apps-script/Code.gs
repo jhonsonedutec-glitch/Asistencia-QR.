@@ -92,6 +92,10 @@ function doGet(e) {
       return jsonResponse(obtenerTareas(grado, dniDocente));
     }
 
+    if (action === 'test_drive') {
+      return jsonResponse(subirArchivoADrive('JVBERi0xLjQK', 'prueba_autorizacion.pdf', 'application/pdf'));
+    }
+
     return jsonResponse({ success: false, message: 'Acción no válida' });
 
   } catch (error) {
@@ -1029,6 +1033,19 @@ function asegurarHojaTareas() {
   return hoja;
 }
 
+function autorizarPermisosDrive() {
+  // Función para ejecutar una sola vez en el editor de Apps Script
+  // para que Google solicite y apruebe los permisos de Google Drive.
+  try {
+    const carpetas = DriveApp.getFoldersByName('Tareas_Escolares_Adjuntos');
+    Logger.log('Permisos de Drive OK. Acceso comprobado.');
+    return 'Permisos de Google Drive concedidos correctamente.';
+  } catch (err) {
+    Logger.log('Error al autorizar Drive: ' + err.message);
+    throw err;
+  }
+}
+
 function subirArchivoADrive(base64Data, nombreArchivo, mimeType) {
   try {
     if (!base64Data) return { success: false, message: 'No hay datos de archivo.' };
@@ -1038,6 +1055,7 @@ function subirArchivoADrive(base64Data, nombreArchivo, mimeType) {
       base64Data = base64Data.split(',')[1];
     }
     
+    base64Data = base64Data.replace(/\s/g, '');
     const bytes = Utilities.base64Decode(base64Data);
     const tipo = mimeType || 'application/pdf';
     const tz = Session.getScriptTimeZone() || 'America/Lima';
@@ -1071,7 +1089,10 @@ function subirArchivoADrive(base64Data, nombreArchivo, mimeType) {
     };
   } catch (err) {
     Logger.log('Error al subir archivo a Drive: ' + err.message);
-    return { success: false, message: 'Error en Google Drive: ' + err.message };
+    return { 
+      success: false, 
+      message: 'Error en Google Drive (' + err.message + '). Ejecute autorizarPermisosDrive() en Apps Script para conceder permisos.' 
+    };
   }
 }
 
@@ -1212,6 +1233,11 @@ function registrarTarea(data) {
     if (resDrive && resDrive.success) {
       urlAdjunto = resDrive.url;
       nombreAdjunto = resDrive.nombre;
+    } else {
+      return {
+        success: false,
+        message: 'No se pudo subir el archivo PDF a Google Drive: ' + (resDrive ? resDrive.message : 'Error desconocido. Verifique permisos de Drive en Apps Script.')
+      };
     }
   }
 
