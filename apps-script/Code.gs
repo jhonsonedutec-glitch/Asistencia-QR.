@@ -110,7 +110,10 @@ function doGet(e) {
 }
 
 function doPost(e) {
+  const lock = LockService.getScriptLock();
   try {
+    // Espera segura de hasta 10 segundos para concurrencia perfecta con múltiples lectores QR simultáneos
+    lock.waitLock(10000);
     const data = JSON.parse(e.postData.contents || '{}');
     const action = data.action;
     const dni = String(data.dni || '').trim();
@@ -348,6 +351,10 @@ function doPost(e) {
 
   } catch (error) {
     return jsonResponse({ success: false, message: 'Error en el servidor: ' + error.message });
+  } finally {
+    try {
+      lock.releaseLock();
+    } catch (eLock) {}
   }
 }
 
