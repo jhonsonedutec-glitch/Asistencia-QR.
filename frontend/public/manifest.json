@@ -1,6 +1,7 @@
 {
-  "short_name": "Portal IEP",
-  "name": "Portal de Padres - IEP MILLENIUM",
+  "short_name": "IEP Millenium",
+  "name": "IEP MILLENIUM - Asistencia y Cafetería",
+  "description": "Sistema de Control de Asistencia, Cafetería y Gestión Escolar IEP Millenium",
   "icons": [
     {
       "src": "/app-icon.png",
@@ -14,9 +15,9 @@
       "sizes": "192x192"
     }
   ],
-  "start_url": "/padres",
-  "background_color": "#ffffff",
-  "theme_color": "#2563eb",
+  "start_url": "/",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
   "display": "standalone",
   "orientation": "portrait"
 }

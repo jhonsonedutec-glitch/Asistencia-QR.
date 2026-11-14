@@ -54,6 +54,21 @@ const ConsultaPadres = () => {
   const [toastCafeteria, setToastCafeteria] = useState(null);
   const [subTabMovimientos, setSubTabMovimientos] = useState('consumos'); // consumos | recargas | pedidos
 
+  // Configurar PWA dinámica para el Portal de Padres
+  useEffect(() => {
+    document.title = 'Portal de Padres | IEP Millenium';
+    
+    let manifestLink = document.querySelector("link[rel='manifest']");
+    const originalManifest = manifestLink ? manifestLink.getAttribute('href') : '/manifest.json';
+    if (manifestLink) {
+      manifestLink.setAttribute('href', '/manifest-padres.json');
+    }
+
+    return () => {
+      if (manifestLink && originalManifest) manifestLink.setAttribute('href', originalManifest);
+    };
+  }, []);
+
   // Consultar automáticamente si ya hay un DNI guardado al cargar la página
   useEffect(() => {
     const savedDni = localStorage.getItem(STORAGE_KEY);

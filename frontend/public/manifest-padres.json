@@ -1,0 +1,23 @@
+{
+  "short_name": "Portal Padres",
+  "name": "Portal de Padres - IEP MILLENIUM",
+  "description": "Consulta de asistencia, tareas, comunicados y cafetería escolar para padres de familia",
+  "icons": [
+    {
+      "src": "/app-icon.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/apple-touch-icon.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    }
+  ],
+  "start_url": "/padres",
+  "background_color": "#ffffff",
+  "theme_color": "#2563eb",
+  "display": "standalone",
+  "orientation": "portrait"
+}
