@@ -581,11 +581,15 @@ export default function CafeteriaAdmin() {
       {/* Header Bar */}
       <div className="bg-slate-900/90 border-b border-slate-800 px-4 sm:px-6 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4 sticky top-16 z-10 backdrop-blur">
         <div>
-          <div className="flex items-center gap-3">
-            <span className="text-3xl">🍽️</span>
+          <div className="flex items-center gap-3.5">
+            <img
+              src="/logo-las-palmeras.jpg"
+              alt="Las Palmeras"
+              className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl object-contain bg-white p-1 shadow-md border border-amber-500/30 shrink-0"
+            />
             <div>
               <h1 className="text-xl sm:text-2xl font-black tracking-tight text-white flex items-center gap-2">
-                Gestión de Cafetería y Comedor
+                Cafetería Las Palmeras
                 <span className="text-xs bg-amber-500/20 text-amber-300 border border-amber-500/30 px-2.5 py-0.5 rounded-full font-bold">
                   IEP Millenium
                 </span>
@@ -941,7 +945,7 @@ export default function CafeteriaAdmin() {
               <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-2xl sticky top-36 flex flex-col h-[calc(100vh-170px)]">
                 <div className="flex items-center justify-between pb-3 border-b border-slate-800">
                   <div className="font-extrabold text-white text-base flex items-center gap-2">
-                    <span>🧾</span>
+                    <img src="/logo-las-palmeras.jpg" alt="Las Palmeras" className="w-6 h-6 rounded-md object-contain bg-white p-0.5" />
                     <span>Ticket de Venta</span>
                   </div>
                   {carrito.length > 0 && (
@@ -1414,6 +1418,23 @@ export default function CafeteriaAdmin() {
         {/* ======================================================== */}
         {tabActiva === 'menu' && (
           <div className="space-y-6">
+            {/* Banner de Bienvenida Catálogo */}
+            <div className="bg-gradient-to-r from-amber-950/40 via-slate-900 to-slate-900 border border-amber-500/20 rounded-2xl p-4 flex items-center gap-3.5">
+              <img
+                src="/logo-las-palmeras.jpg"
+                alt="Las Palmeras"
+                className="w-12 h-12 rounded-xl object-contain bg-white p-1 border border-amber-500/30 shrink-0 shadow-sm"
+              />
+              <div>
+                <h3 className="text-white font-extrabold text-sm sm:text-base flex items-center gap-2">
+                  <span>Catálogo del Menú · Las Palmeras</span>
+                </h3>
+                <p className="text-xs text-slate-400">
+                  Gestiona los platos, precios, disponibilidad del día y fotos del menú escolar.
+                </p>
+              </div>
+            </div>
+
             {/* Header del catálogo con botón agregar */}
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div className="flex flex-wrap items-center gap-3">

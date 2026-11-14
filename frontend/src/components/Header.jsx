@@ -64,12 +64,12 @@ export default function Header() {
           <NavLink
             to="/cafeteria"
             className={({ isActive }) =>
-              `rounded-xl px-4 py-2 text-sm font-semibold flex items-center gap-1.5 ${
+              `rounded-xl px-4 py-2 text-sm font-semibold flex items-center gap-2 ${
                 isActive ? 'bg-amber-600 text-white shadow-lg shadow-amber-600/30' : 'text-amber-300 hover:bg-amber-900/40'
               }`
             }
           >
-            <span>🍽️</span>
+            <img src="/logo-las-palmeras.jpg" alt="Las Palmeras" className="w-5 h-5 rounded-full object-contain bg-white shadow-sm" />
             <span>Cafetería</span>
           </NavLink>
           <NavLink

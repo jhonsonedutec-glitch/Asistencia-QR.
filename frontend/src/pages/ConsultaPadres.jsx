@@ -53,6 +53,7 @@ const ConsultaPadres = () => {
   const [enviandoRecarga, setEnviandoRecarga] = useState(false);
   const [toastCafeteria, setToastCafeteria] = useState(null);
   const [subTabMovimientos, setSubTabMovimientos] = useState('consumos'); // consumos | recargas | pedidos
+  const [mostrarBienvenidaCafeteria, setMostrarBienvenidaCafeteria] = useState(true);
 
   // Configurar PWA dinámica para el Portal de Padres
   useEffect(() => {
@@ -850,6 +851,75 @@ const ConsultaPadres = () => {
                   </div>
                 )}
 
+                {/* BANNER DE BIENVENIDA SUTIL: CAFETERÍA LAS PALMERAS */}
+                {mostrarBienvenidaCafeteria ? (
+                  <div className="bg-gradient-to-b from-amber-50/90 via-white to-orange-50/50 rounded-3xl border border-amber-200/80 p-5 sm:p-6 text-center shadow-sm relative overflow-hidden animate-in fade-in slide-in-from-top-4 duration-300">
+                    {/* Botón sutil para cerrar / minimizar */}
+                    <button
+                      onClick={() => setMostrarBienvenidaCafeteria(false)}
+                      className="absolute top-3.5 right-3.5 w-7 h-7 rounded-full bg-white/90 hover:bg-white text-gray-400 hover:text-gray-600 border border-gray-200/80 flex items-center justify-center text-xs transition-all shadow-sm"
+                      title="Ocultar bienvenida"
+                      aria-label="Ocultar bienvenida"
+                    >
+                      ✕
+                    </button>
+
+                    {/* Resplandor decorativo de fondo */}
+                    <div className="absolute top-0 left-1/2 -translate-x-1/2 w-48 h-16 bg-amber-400/10 rounded-full blur-2xl pointer-events-none"></div>
+
+                    <div className="relative z-10 flex flex-col items-center justify-center">
+                      {/* Texto sutil "Bienvenido a" */}
+                      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-100/90 text-amber-900 text-[11px] font-black tracking-widest uppercase mb-2 border border-amber-200/60 shadow-sm">
+                        <span className="text-amber-600">✨</span> Bienvenido a <span className="text-amber-600">✨</span>
+                      </span>
+
+                      {/* Logo oficial Las Palmeras */}
+                      <div className="my-1.5 transition-transform duration-300 hover:scale-105">
+                        <img
+                          src="/logo-las-palmeras.jpg"
+                          alt="Las Palmeras - Restaurante Cafetería"
+                          className="w-28 h-28 sm:w-36 sm:h-36 object-contain rounded-2xl shadow-md border-2 border-white bg-white p-1"
+                        />
+                      </div>
+
+                      {/* Subtítulo descriptivo */}
+                      <p className="text-xs sm:text-sm text-gray-600 font-medium max-w-md mx-auto mt-2 leading-relaxed">
+                        Concesionario oficial de la <span className="font-extrabold text-amber-900">IEP Millenium</span>. Alimentos frescos, desayunos nutritivos y loncheras saludables preparadas a diario con amor para tus hijos.
+                      </p>
+
+                      {/* Badges de beneficios */}
+                      <div className="flex flex-wrap items-center justify-center gap-2 mt-3.5 pt-3 border-t border-amber-100/80 w-full max-w-md text-[11px] font-semibold">
+                        <span className="flex items-center gap-1 bg-white px-2.5 py-1 rounded-lg border border-amber-100 text-amber-900 shadow-[0_1px_2px_rgba(0,0,0,0.03)]">
+                          🥗 100% Fresco y Natural
+                        </span>
+                        <span className="flex items-center gap-1 bg-white px-2.5 py-1 rounded-lg border border-amber-100 text-amber-900 shadow-[0_1px_2px_rgba(0,0,0,0.03)]">
+                          ⚡ Atención Rápida en Recreos
+                        </span>
+                        <span className="flex items-center gap-1 bg-white px-2.5 py-1 rounded-lg border border-amber-100 text-amber-900 shadow-[0_1px_2px_rgba(0,0,0,0.03)]">
+                          💳 Pedidos y Billetera Digital
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-between bg-gradient-to-r from-amber-50 to-orange-50/60 border border-amber-200/60 rounded-2xl px-4 py-2 text-xs text-amber-900 shadow-sm">
+                    <div className="flex items-center gap-2.5">
+                      <img
+                        src="/logo-las-palmeras.jpg"
+                        alt="Las Palmeras"
+                        className="w-6 h-6 rounded-md object-contain bg-white border border-amber-200 p-0.5"
+                      />
+                      <span className="font-bold">Cafetería Las Palmeras · Menú escolar disponible</span>
+                    </div>
+                    <button
+                      onClick={() => setMostrarBienvenidaCafeteria(true)}
+                      className="text-amber-800 hover:text-amber-950 font-bold underline text-[11px] hover:no-underline"
+                    >
+                      Ver bienvenida
+                    </button>
+                  </div>
+                )}
+
                 {/* TARJETA HERO: BILLETERA DIGITAL ESCOLAR */}
                 <div className="bg-gradient-to-br from-amber-500 via-orange-500 to-amber-600 rounded-3xl p-5 sm:p-6 text-white shadow-xl relative overflow-hidden">
                   <div className="absolute -right-6 -bottom-6 w-36 h-36 bg-white/10 rounded-full blur-2xl"></div>
@@ -858,6 +928,8 @@ const ConsultaPadres = () => {
                     <div>
                       <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 text-amber-100 text-xs font-black uppercase tracking-wider">
                         <span>💳 Billetera Digital Escolar</span>
+                        <span>·</span>
+                        <span>Cafetería Las Palmeras</span>
                         <span>·</span>
                         <span>IEP Millenium</span>
                       </div>
@@ -908,14 +980,23 @@ const ConsultaPadres = () => {
                 {/* MENÚ ESCOLAR DEL DÍA: CATÁLOGO */}
                 <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-sm">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
-                    <div>
-                      <h4 className="font-extrabold text-gray-900 text-base flex items-center gap-2">
-                        <span>🥪</span>
-                        <span>Menú del Día en Cafetería</span>
-                      </h4>
-                      <p className="text-xs text-gray-500">
-                        Alimentos frescos disponibles hoy para el recreo o almuerzo.
-                      </p>
+                    <div className="flex items-center gap-3">
+                      <img
+                        src="/logo-las-palmeras.jpg"
+                        alt="Las Palmeras"
+                        className="w-10 h-10 rounded-xl object-contain bg-white border border-amber-200 p-0.5 shadow-sm shrink-0"
+                      />
+                      <div>
+                        <h4 className="font-extrabold text-gray-900 text-base flex items-center gap-2">
+                          <span>Menú del Día en Cafetería</span>
+                          <span className="text-[10px] bg-amber-100 text-amber-800 font-bold px-2 py-0.5 rounded-full border border-amber-200 hidden sm:inline-block">
+                            Las Palmeras
+                          </span>
+                        </h4>
+                        <p className="text-xs text-gray-500">
+                          Alimentos frescos preparados hoy para el recreo o almuerzo.
+                        </p>
+                      </div>
                     </div>
 
                     {/* Filtro categoría */}
@@ -1358,11 +1439,15 @@ const ConsultaPadres = () => {
             className="relative max-w-md w-full bg-white rounded-3xl p-5 sm:p-6 shadow-2xl overflow-y-auto max-h-[92vh]"
           >
             <div className="flex items-center justify-between pb-3 border-b border-gray-100 mb-4">
-              <div className="flex items-center gap-2">
-                <span className="text-2xl">📱</span>
+              <div className="flex items-center gap-2.5">
+                <img
+                  src="/logo-las-palmeras.jpg"
+                  alt="Las Palmeras"
+                  className="w-9 h-9 rounded-xl object-contain bg-white border border-purple-200 p-0.5 shadow-sm shrink-0"
+                />
                 <div>
                   <h3 className="font-extrabold text-gray-900 text-base">Recargar Billetera por Yape</h3>
-                  <p className="text-xs text-gray-500">Cafetería Escolar · IEP Millenium</p>
+                  <p className="text-xs text-gray-500">Cafetería Las Palmeras · IEP Millenium</p>
                 </div>
               </div>
               <button
