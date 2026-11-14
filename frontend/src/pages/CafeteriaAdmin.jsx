@@ -84,6 +84,7 @@ export default function CafeteriaAdmin() {
   const [filtroEstadoRecargas, setFiltroEstadoRecargas] = useState('PENDIENTE');
   const [modalComprobante, setModalComprobante] = useState(null);
   const [procesandoRecargaId, setProcesandoRecargaId] = useState(null);
+  const [mostrarModalQRYape, setMostrarModalQRYape] = useState(false);
 
   // Estados de Menú y Productos
   const [modalProducto, setModalProducto] = useState(null); // null | { isEdit: bool, data: {...} }
@@ -639,6 +640,15 @@ export default function CafeteriaAdmin() {
           >
             <span>📊</span>
             <span>Reportes Dirección</span>
+          </button>
+
+          <button
+            onClick={() => setMostrarModalQRYape(true)}
+            className="px-3 py-2 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-1.5 transition-all whitespace-nowrap bg-purple-600/20 hover:bg-purple-600/40 text-purple-200 border border-purple-500/40"
+            title="Ver código QR oficial de Yape para mostrar en caja o imprimir"
+          >
+            <span>📱</span>
+            <span>QR Yape</span>
           </button>
         </div>
       </div>
@@ -1871,6 +1881,63 @@ export default function CafeteriaAdmin() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* MODAL: QR OFICIAL DE YAPE PARA COBRO O IMPRESIÓN         */}
+      {/* ======================================================== */}
+      {mostrarModalQRYape && (
+        <div 
+          onClick={() => setMostrarModalQRYape(false)}
+          className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4"
+        >
+          <div 
+            onClick={(e) => e.stopPropagation()}
+            className="bg-[#6B1E87] border border-purple-400/40 rounded-3xl max-w-sm w-full p-6 text-center text-white shadow-2xl relative flex flex-col items-center"
+          >
+            <button
+              onClick={() => setMostrarModalQRYape(false)}
+              className="absolute top-4 right-4 text-purple-200 hover:text-white font-black text-sm p-1 rounded-lg"
+            >
+              ✕
+            </button>
+
+            <div className="text-xs font-black uppercase tracking-wider text-purple-200 mb-1 flex items-center gap-1.5">
+              <span>💜</span>
+              <span>Código QR Oficial de Yape</span>
+            </div>
+
+            <div className="bg-white p-3 rounded-2xl shadow-inner my-3 max-w-[220px]">
+              <img 
+                src="/qr-yape.jpg" 
+                alt="QR Yape - Juan Fernando Elias Medina" 
+                className="w-full h-auto rounded-xl object-contain shadow-sm"
+              />
+            </div>
+
+            <div className="text-xs text-purple-200 mt-1">Titular de la Cuenta:</div>
+            <div className="text-base font-extrabold text-white">Juan Fernando Elias Medina</div>
+            <div className="text-xs text-purple-200/80 mt-0.5">Cafetería Escolar · IEP Millenium</div>
+
+            <div className="mt-4 pt-3 border-t border-purple-400/30 w-full flex items-center justify-center gap-2">
+              <a
+                href="/qr-yape.jpg"
+                download="qr-yape-cafeteria-millenium.jpg"
+                className="bg-white hover:bg-purple-50 text-purple-950 font-black px-4 py-2 rounded-xl text-xs shadow-md transition-all inline-flex items-center gap-1.5"
+              >
+                <span>📥</span>
+                <span>Descargar / Imprimir</span>
+              </a>
+              <button
+                type="button"
+                onClick={() => setMostrarModalQRYape(false)}
+                className="bg-purple-900/50 hover:bg-purple-900/80 text-purple-200 font-bold px-3 py-2 rounded-xl text-xs transition-all"
+              >
+                Cerrar
+              </button>
+            </div>
           </div>
         </div>
       )}

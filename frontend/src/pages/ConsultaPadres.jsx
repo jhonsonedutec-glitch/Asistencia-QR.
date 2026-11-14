@@ -1269,6 +1269,127 @@ const ConsultaPadres = () => {
           </div>
         </div>
       )}
+
+      {/* Modal: Recargar Saldo con Yape */}
+      {modalRecargaYape && (
+        <div 
+          onClick={() => setModalRecargaYape(false)}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in"
+        >
+          <div 
+            onClick={(e) => e.stopPropagation()}
+            className="relative max-w-md w-full bg-white rounded-3xl p-5 sm:p-6 shadow-2xl overflow-y-auto max-h-[92vh]"
+          >
+            <div className="flex items-center justify-between pb-3 border-b border-gray-100 mb-4">
+              <div className="flex items-center gap-2">
+                <span className="text-2xl">📱</span>
+                <div>
+                  <h3 className="font-extrabold text-gray-900 text-base">Recargar Billetera por Yape</h3>
+                  <p className="text-xs text-gray-500">Cafetería Escolar · IEP Millenium</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setModalRecargaYape(false)}
+                className="text-gray-400 hover:text-gray-600 font-black p-1 text-sm"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* QR Oficial de Yape */}
+            <div className="bg-[#6B1E87] rounded-2xl p-4 text-white text-center shadow-md mb-4 flex flex-col items-center">
+              <div className="text-xs font-bold uppercase tracking-wider text-purple-200 mb-1">
+                Escanea el código QR desde tu app Yape
+              </div>
+              <div className="bg-white p-2.5 rounded-2xl shadow-inner my-2 inline-block max-w-[200px]">
+                <img 
+                  src="/qr-yape.jpg" 
+                  alt="Código QR de Yape - Juan Fernando Elias Medina" 
+                  className="w-full h-auto rounded-xl object-contain shadow-sm"
+                />
+              </div>
+              <div className="mt-1">
+                <div className="text-xs text-purple-200">Titular de la cuenta:</div>
+                <div className="font-extrabold text-sm text-white">Juan Fernando Elias Medina</div>
+              </div>
+              <a
+                href="/qr-yape.jpg"
+                download="qr-yape-cafeteria-millenium.jpg"
+                className="mt-2 text-[11px] bg-white/20 hover:bg-white/30 text-white font-bold px-3 py-1 rounded-full transition-all inline-flex items-center gap-1"
+              >
+                <span>📥</span> Descargar QR a mi teléfono
+              </a>
+            </div>
+
+            <form onSubmit={handleEnviarRecargaYapeSubmit} className="space-y-3.5">
+              <div>
+                <label className="text-xs font-bold text-gray-700 block mb-1">Monto Transferido (S/) *</label>
+                <input
+                  type="number"
+                  step="0.50"
+                  min="1"
+                  required
+                  placeholder="Ej: 20.00"
+                  value={montoYape}
+                  onChange={(e) => setMontoYape(e.target.value)}
+                  className="w-full bg-gray-50 border border-gray-300 rounded-xl px-3 py-2 text-sm text-gray-900 font-mono font-bold focus:outline-none focus:ring-2 focus:ring-purple-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-gray-700 block mb-1">Código de Operación Yape (6 a 8 dígitos) *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ej: 849201"
+                  value={codigoOpYape}
+                  onChange={(e) => setCodigoOpYape(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                  className="w-full bg-gray-50 border border-gray-300 rounded-xl px-3 py-2 text-sm text-gray-900 font-mono focus:outline-none focus:ring-2 focus:ring-purple-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-gray-700 block mb-1">Tu Número de Celular Yape (Opcional)</label>
+                <input
+                  type="text"
+                  placeholder="Ej: 987654321"
+                  value={celularYape}
+                  onChange={(e) => setCelularYape(e.target.value)}
+                  className="w-full bg-gray-50 border border-gray-300 rounded-xl px-3 py-2 text-xs text-gray-900 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-gray-700 block mb-1">Foto o Captura de la Constancia Yape *</label>
+                <input
+                  type="file"
+                  accept="image/*"
+                  required
+                  onChange={(e) => setComprobanteYapeFile(e.target.files[0] || null)}
+                  className="w-full text-xs text-gray-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-purple-100 file:text-purple-800 hover:file:bg-purple-200"
+                />
+              </div>
+
+              <div className="pt-3 border-t border-gray-100 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setModalRecargaYape(false)}
+                  className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-xl text-xs"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={enviandoRecarga}
+                  className="px-5 py-2.5 bg-[#6B1E87] hover:bg-[#581770] text-white font-extrabold rounded-xl text-xs shadow-md hover:shadow-lg transition-all disabled:opacity-50"
+                >
+                  {enviandoRecarga ? 'Enviando...' : 'Enviar Comprobante a Cafetería'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
