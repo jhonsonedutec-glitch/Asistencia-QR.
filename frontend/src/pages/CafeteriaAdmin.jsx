@@ -90,6 +90,8 @@ export default function CafeteriaAdmin() {
   const [modalProducto, setModalProducto] = useState(null); // null | { isEdit: bool, data: {...} }
   const [filtroCategoriaMenu, setFiltroCategoriaMenu] = useState('TODAS');
   const [busquedaMenu, setBusquedaMenu] = useState('');
+  const [previewFotoProducto, setPreviewFotoProducto] = useState(null);
+  const [guardandoProducto, setGuardandoProducto] = useState(false);
 
   // Estados de Reportes
   const [periodoReporte, setPeriodoReporte] = useState('HOY');
@@ -133,7 +135,14 @@ export default function CafeteriaAdmin() {
       }
 
       if (prodRes && prodRes.success && Array.isArray(prodRes.productos)) {
-        setProductos(prodRes.productos);
+        const norm = prodRes.productos.map(p => ({
+          ...p,
+          idProducto: p.idProducto || p.id,
+          id: p.id || p.idProducto,
+          imagenUrl: p.imagenUrl || p.fotoUrl || '',
+          fotoUrl: p.fotoUrl || p.imagenUrl || ''
+        }));
+        setProductos(norm);
       }
     } catch (err) {
       console.error(err);
@@ -486,9 +495,18 @@ export default function CafeteriaAdmin() {
       imagenMime = file.type;
     }
 
+    setGuardandoProducto(true);
     try {
+      const idActual = modalProducto && modalProducto.data 
+        ? (modalProducto.data.id || modalProducto.data.idProducto || '') 
+        : '';
+      const fotoActual = modalProducto && modalProducto.data 
+        ? (modalProducto.data.fotoUrl || modalProducto.data.imagenUrl || '') 
+        : '';
+
       const payload = {
-        idProducto: modalProducto && modalProducto.data ? modalProducto.data.idProducto : '',
+        id: idActual,
+        idProducto: idActual,
         nombre,
         categoria,
         precio,
@@ -498,19 +516,28 @@ export default function CafeteriaAdmin() {
         imagenBase64,
         imagenNombre,
         imagenMime,
-        imagenUrl: modalProducto && modalProducto.data ? modalProducto.data.imagenUrl : ''
+        foto: imagenBase64 ? {
+          base64: imagenBase64,
+          nombre: imagenNombre,
+          tipo: imagenMime
+        } : null,
+        fotoUrl: fotoActual,
+        imagenUrl: fotoActual
       };
 
       const res = await guardarProductoCafeteria(payload);
       if (res && res.success) {
-        showToast('¡Producto guardado exitosamente!');
+        showToast('¡Producto y foto guardados exitosamente!');
         setModalProducto(null);
-        cargarDatosBase();
+        setPreviewFotoProducto(null);
+        await cargarDatosBase();
       } else {
         showToast(res.message || 'Error al guardar producto', 'error');
       }
     } catch (err) {
       showToast('Error: ' + err.message, 'error');
+    } finally {
+      setGuardandoProducto(false);
     }
   };
 
@@ -1712,7 +1739,7 @@ export default function CafeteriaAdmin() {
                 {modalProducto.isEdit ? 'Editar Producto del Menú' : 'Nuevo Producto para la Cafetería'}
               </h3>
               <button
-                onClick={() => setModalProducto(null)}
+                onClick={() => { setModalProducto(null); setPreviewFotoProducto(null); }}
                 className="text-slate-400 hover:text-white font-black text-sm p-1"
               >
                 ✕
@@ -1799,10 +1826,40 @@ export default function CafeteriaAdmin() {
 
               <div>
                 <label className="text-xs font-bold text-slate-400 block mb-1">Foto del Alimento (Opcional)</label>
+                {(previewFotoProducto || (modalProducto.data && (modalProducto.data.imagenUrl || modalProducto.data.fotoUrl))) && (
+                  <div className="mb-2.5 flex items-center gap-3 bg-slate-950 p-2.5 rounded-xl border border-slate-800">
+                    <div className="w-16 h-16 rounded-lg overflow-hidden border border-slate-700 bg-slate-900 flex items-center justify-center shrink-0">
+                      <img
+                        src={previewFotoProducto || (modalProducto.data.imagenUrl || modalProducto.data.fotoUrl)}
+                        alt="Vista previa"
+                        className="w-full h-full object-cover"
+                        onError={(e) => { e.target.style.display = 'none'; }}
+                      />
+                    </div>
+                    <div className="text-xs text-slate-400">
+                      <div className="font-bold text-white mb-0.5">
+                        {previewFotoProducto ? 'Nueva foto seleccionada' : 'Foto actual guardada'}
+                      </div>
+                      <p className="text-[11px] text-slate-500">
+                        {previewFotoProducto ? 'Se subirá y guardará en Google Drive al guardar.' : 'Puedes seleccionar otra foto para reemplazarla.'}
+                      </p>
+                    </div>
+                  </div>
+                )}
                 <input
                   type="file"
                   name="imagen"
                   accept="image/*"
+                  onChange={(e) => {
+                    const f = e.target.files[0];
+                    if (f) {
+                      const reader = new FileReader();
+                      reader.onload = () => setPreviewFotoProducto(reader.result);
+                      reader.readAsDataURL(f);
+                    } else {
+                      setPreviewFotoProducto(null);
+                    }
+                  }}
                   className="w-full text-xs text-slate-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-slate-800 file:text-slate-300 hover:file:bg-slate-700"
                 />
               </div>
@@ -1810,16 +1867,24 @@ export default function CafeteriaAdmin() {
               <div className="pt-3 border-t border-slate-800 flex justify-end gap-2">
                 <button
                   type="button"
-                  onClick={() => setModalProducto(null)}
+                  onClick={() => { setModalProducto(null); setPreviewFotoProducto(null); }}
                   className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-bold"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-xl text-xs font-black shadow-lg shadow-amber-500/20"
+                  disabled={guardandoProducto}
+                  className="px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-xl text-xs font-black shadow-lg shadow-amber-500/20 disabled:opacity-50 flex items-center gap-1.5"
                 >
-                  Guardar Producto
+                  {guardandoProducto ? (
+                    <>
+                      <span className="animate-spin">⏳</span>
+                      <span>Subiendo foto a Drive...</span>
+                    </>
+                  ) : (
+                    <span>Guardar Producto</span>
+                  )}
                 </button>
               </div>
             </form>

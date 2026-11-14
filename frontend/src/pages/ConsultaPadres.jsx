@@ -117,7 +117,14 @@ const ConsultaPadres = () => {
           setLoadingMenu(true);
           obtenerProductosCafeteria(true).then(pRes => {
             if (pRes && pRes.success && Array.isArray(pRes.productos)) {
-              setMenuHoy(pRes.productos);
+              const norm = pRes.productos.map(p => ({
+                ...p,
+                idProducto: p.idProducto || p.id,
+                id: p.id || p.idProducto,
+                imagenUrl: p.imagenUrl || p.fotoUrl || '',
+                fotoUrl: p.fotoUrl || p.imagenUrl || ''
+              }));
+              setMenuHoy(norm);
             }
           }).finally(() => {
             setLoadingMenu(false);

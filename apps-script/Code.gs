@@ -1824,13 +1824,17 @@ function obtenerProductosCafeteria(soloMenuHoy) {
       continue;
     }
 
+    const fotoUrl = String(datos[i][5] || '').trim();
+
     productos.push({
       id: id,
+      idProducto: id,
       categoria: String(datos[i][1] || 'Otros productos').trim(),
       nombre: String(datos[i][2] || '').trim(),
       descripcion: String(datos[i][3] || '').trim(),
       precio: parseFloat(datos[i][4]) || 0,
-      fotoUrl: String(datos[i][5] || '').trim(),
+      fotoUrl: fotoUrl,
+      imagenUrl: fotoUrl,
       estado: estado,
       enMenuHoy: enMenuHoy
     });
@@ -1855,12 +1859,18 @@ function guardarProductoCafeteria(data) {
     return { success: false, message: 'El nombre y un precio válido son obligatorios.' };
   }
 
-  let fotoUrl = String(data.fotoUrl || '').trim();
-  if (data.foto && data.foto.base64) {
+  let fotoUrl = String(data.fotoUrl || data.imagenUrl || '').trim();
+
+  // Soporte universal para foto en base64 en cualquiera de los formatos
+  const base64Data = (data.foto && data.foto.base64) ? data.foto.base64 : (data.imagenBase64 || data.fotoBase64 || '');
+  const base64Nombre = (data.foto && data.foto.nombre) ? data.foto.nombre : (data.imagenNombre || data.fotoNombre || (nombre.replace(/[^a-zA-Z0-9]/g, '_') + '.png'));
+  const base64Tipo = (data.foto && data.foto.tipo) ? data.foto.tipo : (data.imagenMime || data.fotoMime || 'image/png');
+
+  if (base64Data) {
     const resDrive = subirArchivoADrive(
-      data.foto.base64, 
-      data.foto.nombre, 
-      data.foto.tipo || 'image/jpeg', 
+      base64Data, 
+      base64Nombre, 
+      base64Tipo, 
       'Cafeteria_Fotos'
     );
     if (resDrive && resDrive.success) {
@@ -1868,7 +1878,7 @@ function guardarProductoCafeteria(data) {
     }
   }
 
-  const idExistente = String(data.id || '').trim();
+  const idExistente = String(data.id || data.idProducto || '').trim();
   const ultFila = hoja.getLastRow();
 
   if (idExistente && ultFila > 1) {
@@ -1877,7 +1887,7 @@ function guardarProductoCafeteria(data) {
       if (String(ids[i][0]).trim() === idExistente) {
         hoja.getRange(i + 2, 2, 1, 7).setValues([[categoria, nombre, descripcion, precio, fotoUrl, estado, enMenuHoy]]);
         SpreadsheetApp.flush();
-        return { success: true, message: 'Producto actualizado correctamente.', id: idExistente };
+        return { success: true, message: 'Producto actualizado correctamente.', id: idExistente, idProducto: idExistente, fotoUrl: fotoUrl, imagenUrl: fotoUrl };
       }
     }
   }
@@ -1887,7 +1897,7 @@ function guardarProductoCafeteria(data) {
   hoja.appendRow([nuevoId, categoria, nombre, descripcion, precio, fotoUrl, estado, enMenuHoy]);
   SpreadsheetApp.flush();
 
-  return { success: true, message: 'Producto registrado con éxito.', id: nuevoId };
+  return { success: true, message: 'Producto registrado con éxito.', id: nuevoId, idProducto: nuevoId, fotoUrl: fotoUrl, imagenUrl: fotoUrl };
 }
 
 function toggleMenuHoyProducto(idProducto, nuevoEnMenuHoy) {
