@@ -54,6 +54,7 @@ const ConsultaPadres = () => {
   const [toastCafeteria, setToastCafeteria] = useState(null);
   const [subTabMovimientos, setSubTabMovimientos] = useState('consumos'); // consumos | recargas | pedidos
   const [mostrarBienvenidaCafeteria, setMostrarBienvenidaCafeteria] = useState(true);
+  const [modalConfirmarPedidoPadre, setModalConfirmarPedidoPadre] = useState(false);
 
   // Configurar PWA dinámica para el Portal de Padres
   useEffect(() => {
@@ -243,8 +244,8 @@ const ConsultaPadres = () => {
     return Number(carritoPadre.reduce((acc, it) => acc + (it.subtotal || 0), 0).toFixed(2));
   }, [carritoPadre]);
 
-  // Enviar pedido anticipado del padre
-  const handleConfirmarPedidoPadre = async () => {
+  // Validar y abrir confirmación de pedido anticipado del padre
+  const handleConfirmarPedidoPadre = () => {
     if (!data || !data.estudiante) return;
     if (carritoPadre.length === 0) {
       showCafeteriaToast('El pedido está vacío. Elige productos del menú.', 'error');
@@ -253,14 +254,20 @@ const ConsultaPadres = () => {
 
     const saldoActual = Number(cafeteriaHistorial?.saldo?.saldoActual || 0);
     if (saldoActual < totalCarritoPadre) {
-      showCafeteriaToast(`Saldo insuficiente. Tu saldo es S/ ${saldoActual.toFixed(2)} y el pedido suma S/ ${totalCarritoPadre.toFixed(2)}. Por favor recarga por Yape.`, 'error');
+      const faltante = Number((totalCarritoPadre - saldoActual).toFixed(2));
+      showCafeteriaToast(`Saldo insuficiente. Tu saldo es S/ ${saldoActual.toFixed(2)} y el pedido suma S/ ${totalCarritoPadre.toFixed(2)}. Te faltan S/ ${faltante.toFixed(2)}. Recarga con Yape para continuar.`, 'error');
+      setMontoYape(faltante.toFixed(2));
+      setModalRecargaYape(true);
       return;
     }
 
-    if (!confirm(`¿Confirmas el pedido de S/ ${totalCarritoPadre.toFixed(2)} para el ${turnoPedido} de tu hijo/a? El monto se descontará de su billetera escolar.`)) {
-      return;
-    }
+    // Si tiene saldo suficiente, abrir modal de confirmación limpio
+    setModalConfirmarPedidoPadre(true);
+  };
 
+  // Ejecución definitiva del pedido tras confirmar
+  const ejecutarEnvioPedidoPadre = async () => {
+    setModalConfirmarPedidoPadre(false);
     setEnviandoPedido(true);
     try {
       const hoyISO = getFechaHoyLocal();
@@ -839,15 +846,26 @@ const ConsultaPadres = () => {
             {pestanaActiva === 'cafeteria' && (
               <div className="p-4 sm:p-6 animate-in fade-in duration-150 space-y-6">
 
-                {/* Toast de confirmación de cafetería */}
+                {/* Toast flotante de cafetería (siempre visible en cualquier parte del scroll) */}
                 {toastCafeteria && (
-                  <div className={`p-4 rounded-xl text-sm font-semibold flex items-center gap-2.5 shadow-lg ${
-                    toastCafeteria.tipo === 'error'
-                      ? 'bg-rose-50 text-rose-800 border border-rose-200'
-                      : 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                  }`}>
-                    <span>{toastCafeteria.tipo === 'error' ? '⚠️' : '✅'}</span>
-                    <span>{toastCafeteria.mensaje}</span>
+                  <div className="fixed top-20 left-4 right-4 sm:left-auto sm:right-6 sm:max-w-md z-50 animate-in fade-in slide-in-from-top-3 duration-200">
+                    <div className={`p-4 rounded-2xl text-xs sm:text-sm font-bold flex items-center justify-between gap-3 shadow-2xl border ${
+                      toastCafeteria.tipo === 'error'
+                        ? 'bg-rose-900 text-white border-rose-700 shadow-rose-950/40'
+                        : 'bg-emerald-900 text-white border-emerald-700 shadow-emerald-950/40'
+                    }`}>
+                      <div className="flex items-center gap-2.5">
+                        <span className="text-xl shrink-0">{toastCafeteria.tipo === 'error' ? '⚠️' : '✅'}</span>
+                        <span className="leading-snug">{toastCafeteria.mensaje}</span>
+                      </div>
+                      <button
+                        onClick={() => setToastCafeteria(null)}
+                        className="text-white/70 hover:text-white p-1 text-xs shrink-0 ml-2"
+                        title="Cerrar notificación"
+                      >
+                        ✕
+                      </button>
+                    </div>
                   </div>
                 )}
 
@@ -1197,8 +1215,76 @@ const ConsultaPadres = () => {
                       className="w-full bg-white border border-amber-300 rounded-xl px-3 py-2 text-xs text-gray-800 focus:outline-none focus:ring-2 focus:ring-amber-500"
                     />
 
+                    {/* Resumen de Saldo en Billetera vs Costo del Pedido */}
+                    {(() => {
+                      const saldoActual = Number(cafeteriaHistorial?.saldo?.saldoActual || 0);
+                      const saldoInsuficiente = saldoActual < totalCarritoPadre;
+                      const faltante = Number((totalCarritoPadre - saldoActual).toFixed(2));
+
+                      return (
+                        <div className="bg-amber-50/80 border border-amber-200/80 rounded-2xl p-3.5 space-y-2.5 text-xs shadow-inner">
+                          <div className="flex items-center justify-between">
+                            <span className="text-gray-700 font-bold flex items-center gap-1.5">
+                              <span>💳</span> Tu Saldo en Billetera Escolar:
+                            </span>
+                            <span className={`font-mono font-black text-sm px-2 py-0.5 rounded-lg ${
+                              saldoInsuficiente ? 'text-rose-700 bg-rose-50 border border-rose-200' : 'text-emerald-700 bg-emerald-50 border border-emerald-200'
+                            }`}>
+                              S/ {saldoActual.toFixed(2)}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center justify-between">
+                            <span className="text-gray-700 font-bold flex items-center gap-1.5">
+                              <span>🥪</span> Total a pagar por este pedido:
+                            </span>
+                            <span className="font-mono font-black text-sm text-gray-900">
+                              S/ {totalCarritoPadre.toFixed(2)}
+                            </span>
+                          </div>
+
+                          {!saldoInsuficiente ? (
+                            <div className="pt-2 border-t border-amber-200/60 flex items-center justify-between text-emerald-800 text-[11px] font-bold">
+                              <span className="flex items-center gap-1">
+                                <span>✅</span> Saldo restante tras confirmar:
+                              </span>
+                              <span className="font-mono">
+                                S/ {(saldoActual - totalCarritoPadre).toFixed(2)}
+                              </span>
+                            </div>
+                          ) : (
+                            <div className="pt-2 border-t border-rose-200/80 space-y-2.5">
+                              <div className="flex items-start gap-2 bg-rose-50 border border-rose-200 rounded-xl p-2.5 text-rose-800">
+                                <span className="text-base shrink-0">⚠️</span>
+                                <div className="leading-tight">
+                                  <p className="font-extrabold text-rose-900">
+                                    {saldoActual === 0 ? 'No tienes saldo disponible en tu billetera' : 'Saldo insuficiente para este pedido'}
+                                  </p>
+                                  <p className="text-[11px] text-rose-700 mt-0.5">
+                                    Te faltan <strong className="font-mono font-black">S/ {faltante.toFixed(2)}</strong> para completar este pedido de lonchera.
+                                  </p>
+                                </div>
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setMontoYape(faltante.toFixed(2));
+                                  setModalRecargaYape(true);
+                                }}
+                                className="w-full bg-[#6B1E87] hover:bg-[#58186f] text-white font-extrabold py-2.5 px-4 rounded-xl text-xs flex items-center justify-center gap-2 shadow-sm transition-all"
+                              >
+                                <span>📱</span>
+                                <span>Recargar S/ {faltante.toFixed(2)} con Yape ahora</span>
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+
                     {/* Total y botón confirmar */}
-                    <div className="pt-2 flex items-center justify-between gap-4">
+                    <div className="pt-2 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                       <div>
                         <span className="text-[10px] text-gray-500 uppercase font-bold block">Total del Pedido</span>
                         <span className="text-2xl font-black font-mono text-amber-950">
@@ -1206,20 +1292,37 @@ const ConsultaPadres = () => {
                         </span>
                       </div>
 
-                      <button
-                        onClick={handleConfirmarPedidoPadre}
-                        disabled={enviandoPedido}
-                        className="flex-1 bg-amber-600 hover:bg-amber-700 text-white font-black py-3 rounded-2xl text-xs sm:text-sm shadow-md hover:shadow-lg transition-all disabled:opacity-50 flex items-center justify-center gap-2"
-                      >
-                        {enviandoPedido ? (
-                          <span>Enviando Pedido...</span>
-                        ) : (
-                          <>
-                            <span>✅</span>
-                            <span>Confirmar Pedido (S/ {totalCarritoPadre.toFixed(2)})</span>
-                          </>
-                        )}
-                      </button>
+                      {Number(cafeteriaHistorial?.saldo?.saldoActual || 0) < totalCarritoPadre ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const faltante = (totalCarritoPadre - Number(cafeteriaHistorial?.saldo?.saldoActual || 0)).toFixed(2);
+                            showCafeteriaToast(`Saldo insuficiente. Tu saldo es S/ ${Number(cafeteriaHistorial?.saldo?.saldoActual || 0).toFixed(2)} y el pedido suma S/ ${totalCarritoPadre.toFixed(2)}. Te faltan S/ ${faltante}. Por favor recarga por Yape.`, 'error');
+                            setMontoYape(faltante);
+                            setModalRecargaYape(true);
+                          }}
+                          className="flex-1 bg-rose-600 hover:bg-rose-700 text-white font-black py-3 rounded-2xl text-xs sm:text-sm shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2"
+                        >
+                          <span>⚠️</span>
+                          <span>Saldo Insuficiente · Recargar con Yape</span>
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={handleConfirmarPedidoPadre}
+                          disabled={enviandoPedido}
+                          className="flex-1 bg-amber-600 hover:bg-amber-700 text-white font-black py-3 rounded-2xl text-xs sm:text-sm shadow-md hover:shadow-lg transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                        >
+                          {enviandoPedido ? (
+                            <span>Enviando Pedido...</span>
+                          ) : (
+                            <>
+                              <span>✅</span>
+                              <span>Confirmar Pedido (S/ {totalCarritoPadre.toFixed(2)})</span>
+                            </>
+                          )}
+                        </button>
+                      )}
                     </div>
                   </div>
                 )}
@@ -1549,6 +1652,79 @@ const ConsultaPadres = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Confirmación Elegante de Pedido de Lonchera */}
+      {modalConfirmarPedidoPadre && (
+        <div 
+          onClick={() => setModalConfirmarPedidoPadre(false)}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in"
+        >
+          <div 
+            onClick={(e) => e.stopPropagation()}
+            className="relative max-w-sm w-full bg-white rounded-3xl p-6 shadow-2xl space-y-4 animate-in zoom-in-95 duration-150"
+          >
+            <div className="text-center">
+              <span className="text-4xl inline-block mb-1">🧺</span>
+              <h3 className="font-extrabold text-gray-900 text-lg">¿Confirmar Pedido de Lonchera?</h3>
+              <p className="text-xs text-gray-500 mt-0.5">
+                La orden se enviará a la cocina de <strong className="text-amber-900">Las Palmeras</strong> y el monto se descontará de la billetera escolar.
+              </p>
+            </div>
+
+            <div className="bg-amber-50/80 border border-amber-200/80 rounded-2xl p-4 text-xs space-y-2">
+              <div className="flex justify-between items-center text-gray-600">
+                <span>Estudiante:</span>
+                <strong className="text-gray-900 truncate max-w-[170px]">{data?.estudiante?.nombre}</strong>
+              </div>
+              <div className="flex justify-between items-center text-gray-600">
+                <span>Horario de entrega:</span>
+                <strong className="text-amber-900 font-bold">
+                  {turnoPedido === 'RECREO' ? '☀️ Para la hora de Recreo' : '🍲 Para la hora de Almuerzo'}
+                </strong>
+              </div>
+              <div className="flex justify-between items-center text-gray-600">
+                <span>Productos:</span>
+                <strong className="text-gray-900">
+                  {carritoPadre.reduce((acc, it) => acc + it.cantidad, 0)} {carritoPadre.reduce((acc, it) => acc + it.cantidad, 0) === 1 ? 'item' : 'items'}
+                </strong>
+              </div>
+              {notaPedido.trim() && (
+                <div className="pt-1 text-[11px] text-gray-600 border-t border-amber-200/60">
+                  <span className="font-semibold text-amber-950">Indicación:</span> "{notaPedido.trim()}"
+                </div>
+              )}
+              <div className="pt-2 border-t border-amber-200 flex justify-between items-center text-sm font-extrabold">
+                <span className="text-gray-800">Total a descontar:</span>
+                <span className="text-amber-900 font-mono text-base">S/ {totalCarritoPadre.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between items-center text-[11px] text-gray-500 pt-1 border-t border-amber-200/60">
+                <span>Saldo en billetera: S/ {Number(cafeteriaHistorial?.saldo?.saldoActual || 0).toFixed(2)}</span>
+                <span className="text-emerald-700 font-bold">
+                  Quedará: S/ {(Number(cafeteriaHistorial?.saldo?.saldoActual || 0) - totalCarritoPadre).toFixed(2)}
+                </span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 pt-1">
+              <button
+                type="button"
+                onClick={() => setModalConfirmarPedidoPadre(false)}
+                className="w-full bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-2.5 rounded-xl text-xs transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={ejecutarEnvioPedidoPadre}
+                disabled={enviandoPedido}
+                className="w-full bg-amber-600 hover:bg-amber-700 text-white font-extrabold py-2.5 rounded-xl text-xs transition-colors shadow-md disabled:opacity-50"
+              >
+                {enviandoPedido ? 'Enviando...' : 'Sí, Confirmar'}
+              </button>
+            </div>
           </div>
         </div>
       )}
