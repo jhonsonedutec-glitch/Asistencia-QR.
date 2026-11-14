@@ -762,3 +762,142 @@ export const eliminarComunicado = (idComunicado) => request(GAS_URL, {
   headers: { 'Content-Type': 'text/plain' },
   body: JSON.stringify({ action: 'eliminar_comunicado', idComunicado })
 });
+
+
+// ==========================================
+// MÓDULO DE CAFETERÍA Y LONCHERA ESCOLAR
+// ==========================================
+
+export const CATEGORIAS_CAFETERIA = [
+  'Comidas y platos preparados',
+  'Desayunos',
+  'Sándwiches y hamburguesas',
+  'Entradas y aperitivos',
+  'Snacks y piqueos',
+  'Pastelería y panadería',
+  'Postres y dulces',
+  'Frutas y ensaladas',
+  'Bebidas frías',
+  'Bebidas calientes',
+  'Jugos y bebidas naturales',
+  'Productos lácteos',
+  'Combos y promociones',
+  'Otros productos'
+];
+
+export const obtenerProductosCafeteria = async (soloMenuHoy = false) => {
+  try {
+    const res = await request(`${GAS_URL}?action=cafeteria_productos&soloMenuHoy=${soloMenuHoy}`);
+    return res || { success: false, productos: [] };
+  } catch (err) {
+    console.error('Error al obtener productos de cafetería:', err);
+    return { success: false, productos: [], message: err.message };
+  }
+};
+
+export const guardarProductoCafeteria = (data) => request(GAS_URL, {
+  method: 'POST',
+  headers: { 'Content-Type': 'text/plain' },
+  body: JSON.stringify({ action: 'cafeteria_guardar_producto', ...data })
+});
+
+export const eliminarProductoCafeteria = (idProducto) => request(GAS_URL, {
+  method: 'POST',
+  headers: { 'Content-Type': 'text/plain' },
+  body: JSON.stringify({ action: 'cafeteria_eliminar_producto', idProducto })
+});
+
+export const toggleMenuHoyProducto = (idProducto, enMenuHoy) => request(GAS_URL, {
+  method: 'POST',
+  headers: { 'Content-Type': 'text/plain' },
+  body: JSON.stringify({ action: 'cafeteria_toggle_menu_hoy', idProducto, enMenuHoy })
+});
+
+export const obtenerHistorialEstudianteCafeteria = async (dni) => {
+  try {
+    const res = await request(`${GAS_URL}?action=cafeteria_historial_estudiante&dni=${encodeURIComponent(dni)}`);
+    return res || { success: false };
+  } catch (err) {
+    console.error('Error al obtener historial cafetería:', err);
+    return { success: false, message: err.message };
+  }
+};
+
+export const obtenerSaldosCafeteria = async () => {
+  try {
+    const res = await request(`${GAS_URL}?action=cafeteria_saldos`);
+    return res || { success: false, saldos: [] };
+  } catch (err) {
+    console.error('Error al obtener saldos cafetería:', err);
+    return { success: false, saldos: [], message: err.message };
+  }
+};
+
+export const ajustarSaldoManual = (data) => request(GAS_URL, {
+  method: 'POST',
+  headers: { 'Content-Type': 'text/plain' },
+  body: JSON.stringify({ action: 'cafeteria_ajustar_saldo_manual', ...data })
+});
+
+export const reportarRecargaYape = (data) => request(GAS_URL, {
+  method: 'POST',
+  headers: { 'Content-Type': 'text/plain' },
+  body: JSON.stringify({ action: 'cafeteria_reportar_recarga', ...data })
+});
+
+export const obtenerRecargasCafeteria = async (estado = 'TODOS') => {
+  try {
+    const res = await request(`${GAS_URL}?action=cafeteria_recargas&estado=${encodeURIComponent(estado)}`);
+    return res || { success: false, recargas: [] };
+  } catch (err) {
+    console.error('Error al obtener recargas:', err);
+    return { success: false, recargas: [], message: err.message };
+  }
+};
+
+export const procesarRecargaYape = (idRecarga, accion, validadoPor = 'Cafetería', motivoRechazo = '') => request(GAS_URL, {
+  method: 'POST',
+  headers: { 'Content-Type': 'text/plain' },
+  body: JSON.stringify({ action: 'cafeteria_procesar_recarga', idRecarga, accion, validadoPor, motivoRechazo })
+});
+
+export const registrarVentaCaja = (data) => request(GAS_URL, {
+  method: 'POST',
+  headers: { 'Content-Type': 'text/plain' },
+  body: JSON.stringify({ action: 'cafeteria_registrar_venta', ...data })
+});
+
+export const registrarPedidoPadre = (data) => request(GAS_URL, {
+  method: 'POST',
+  headers: { 'Content-Type': 'text/plain' },
+  body: JSON.stringify({ action: 'cafeteria_registrar_pedido', ...data })
+});
+
+export const obtenerPedidosCafeteria = async (fecha = '', estado = 'TODOS') => {
+  try {
+    let url = `${GAS_URL}?action=cafeteria_pedidos`;
+    if (fecha) url += `&fecha=${encodeURIComponent(fecha)}`;
+    if (estado) url += `&estado=${encodeURIComponent(estado)}`;
+    const res = await request(url);
+    return res || { success: false, pedidos: [] };
+  } catch (err) {
+    console.error('Error al obtener pedidos cafetería:', err);
+    return { success: false, pedidos: [], message: err.message };
+  }
+};
+
+export const cambiarEstadoPedido = (idPedido, nuevoEstado, atendidoPor = 'Cafetería') => request(GAS_URL, {
+  method: 'POST',
+  headers: { 'Content-Type': 'text/plain' },
+  body: JSON.stringify({ action: 'cafeteria_cambiar_estado_pedido', idPedido, nuevoEstado, atendidoPor })
+});
+
+export const obtenerReporteCafeteria = async (periodo = 'HOY') => {
+  try {
+    const res = await request(`${GAS_URL}?action=cafeteria_reporte&periodo=${encodeURIComponent(periodo)}`);
+    return res || { success: false };
+  } catch (err) {
+    console.error('Error al obtener reporte cafetería:', err);
+    return { success: false, message: err.message };
+  }
+};

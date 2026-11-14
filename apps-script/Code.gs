@@ -16,6 +16,11 @@ const HOJA_CALENDARIO = 'CALENDARIO_ANUAL';
 const HOJA_DOCENTES = 'BD_Docentes';
 const HOJA_TAREAS = 'Tareas_Escolares';
 const HOJA_COMUNICADOS = 'Comunicados_Escolares';
+const HOJA_CAFETERIA_PRODUCTOS = 'Cafeteria_Productos';
+const HOJA_CAFETERIA_SALDOS = 'Cafeteria_Saldos';
+const HOJA_CAFETERIA_RECARGAS = 'Cafeteria_Recargas';
+const HOJA_CAFETERIA_VENTAS = 'Cafeteria_Ventas';
+const HOJA_CAFETERIA_PEDIDOS = 'Cafeteria_Pedidos';
 
 // --- API DE WHATSAPP (META CLOUD API) ---
 // IMPORTANTE: Recuerda pegar aquí tu token real de Meta
@@ -96,6 +101,37 @@ function doGet(e) {
     if (action === 'obtener_comunicados') {
       const grado = String(e.parameter.grado || '').trim();
       return jsonResponse(obtenerComunicados(grado));
+    }
+
+    // --- ACCIONES DE CAFETERÍA (GET) ---
+    if (action === 'cafeteria_productos') {
+      const soloMenuHoy = e.parameter.soloMenuHoy === 'true';
+      return jsonResponse(obtenerProductosCafeteria(soloMenuHoy));
+    }
+
+    if (action === 'cafeteria_historial_estudiante') {
+      const dni = String(e.parameter.dni || '').trim();
+      if (!dni) return jsonResponse({ success: false, message: 'DNI requerido' });
+      return jsonResponse(obtenerHistorialEstudianteCafeteria(dni));
+    }
+
+    if (action === 'cafeteria_saldos') {
+      return jsonResponse(obtenerSaldosCafeteria());
+    }
+
+    if (action === 'cafeteria_recargas') {
+      const estado = String(e.parameter.estado || '').trim();
+      return jsonResponse(obtenerRecargasCafeteria(estado));
+    }
+
+    if (action === 'cafeteria_pedidos') {
+      const fecha = String(e.parameter.fecha || '').trim();
+      const estado = String(e.parameter.estado || '').trim();
+      return jsonResponse(obtenerPedidosCafeteria(fecha, estado));
+    }
+
+    if (action === 'cafeteria_reporte') {
+      return jsonResponse(obtenerReporteCafeteria());
     }
 
     if (action === 'test_drive') {
@@ -192,6 +228,43 @@ function doPost(e) {
 
     if (action === 'eliminar_comunicado') {
       return jsonResponse(eliminarComunicado(data.idComunicado));
+    }
+
+    // --- ACCIONES DE CAFETERÍA (POST) ---
+    if (action === 'cafeteria_guardar_producto') {
+      return jsonResponse(guardarProductoCafeteria(data));
+    }
+
+    if (action === 'cafeteria_eliminar_producto') {
+      return jsonResponse(eliminarProductoCafeteria(data.idProducto));
+    }
+
+    if (action === 'cafeteria_toggle_menu_hoy') {
+      return jsonResponse(toggleMenuHoyProducto(data.idProducto, data.enMenuHoy));
+    }
+
+    if (action === 'cafeteria_reportar_recarga') {
+      return jsonResponse(reportarRecargaYape(data));
+    }
+
+    if (action === 'cafeteria_procesar_recarga') {
+      return jsonResponse(procesarRecargaYape(data.idRecarga, data.accion, data.validadoPor));
+    }
+
+    if (action === 'cafeteria_ajustar_saldo_manual') {
+      return jsonResponse(ajustarSaldoManual(data));
+    }
+
+    if (action === 'cafeteria_registrar_venta') {
+      return jsonResponse(registrarVentaCaja(data));
+    }
+
+    if (action === 'cafeteria_registrar_pedido') {
+      return jsonResponse(registrarPedidoPadre(data));
+    }
+
+    if (action === 'cafeteria_cambiar_estado_pedido') {
+      return jsonResponse(cambiarEstadoPedido(data.idPedido, data.nuevoEstado));
     }
 
     if (action !== 'registrar') {
@@ -1643,4 +1716,904 @@ function eliminarComunicado(idComunicado) {
     }
   }
   return { success: false, message: 'Comunicado no encontrado.' };
+}
+
+
+// ============================================================
+// MÓDULO INTEGRAL DE CAFETERÍA ESCOLAR Y BILLETERA DIGITAL
+// IEP MILLENIUM
+// ============================================================
+
+function asegurarHojasCafeteria() {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+
+  // 1. Hoja de Productos
+  let hojaProd = ss.getSheetByName(HOJA_CAFETERIA_PRODUCTOS);
+  const encProd = ['ID_Producto', 'Categoria', 'Nombre', 'Descripcion', 'Precio', 'Foto_URL', 'Estado', 'En_Menu_Hoy'];
+  if (!hojaProd) {
+    hojaProd = ss.insertSheet(HOJA_CAFETERIA_PRODUCTOS);
+    hojaProd.appendRow(encProd);
+    hojaProd.getRange(1, 1, 1, encProd.length).setFontWeight('bold').setBackground('#1e293b').setFontColor('#ffffff');
+
+    // Cargar productos iniciales representativos de las categorías escolares
+    const itemsIniciales = [
+      ['PROD-001', 'Sándwiches y hamburguesas', 'Sándwich de Pollo Especial', 'Pollo deshilachado con lechuga y mayonesa artesanal', 3.50, '', 'Disponible', 'SI'],
+      ['PROD-002', 'Sándwiches y hamburguesas', 'Hamburguesa de Carne con Papitas', 'Carne casera, lechuga, tomate y cremas', 4.50, '', 'Disponible', 'SI'],
+      ['PROD-003', 'Desayunos', 'Desayuno Clásico (Pan con Queso + Avena)', 'Pan campesino con queso fresco y vaso de avena tibia', 4.00, '', 'Disponible', 'SI'],
+      ['PROD-004', 'Comidas y platos preparados', 'Menú Escolar del Día (Almuerzo Completo)', 'Segundo + entrada o sopa + refresco natural', 10.00, '', 'Disponible', 'SI'],
+      ['PROD-005', 'Pastelería y panadería', 'Empanada de Pollo / Carne al Horno', 'Masa horneada rellena con trozos de carne y aceituna', 3.00, '', 'Disponible', 'SI'],
+      ['PROD-006', 'Jugos y bebidas naturales', 'Jugo Natural de Naranja / Maracuyá (400ml)', 'Fruta fresca exprimida en el momento', 3.50, '', 'Disponible', 'SI'],
+      ['PROD-007', 'Bebidas frías', 'Chicha Morada Casera (500ml)', 'Elaborada con maíz morado, piña y canela', 2.00, '', 'Disponible', 'SI'],
+      ['PROD-008', 'Bebidas frías', 'Agua Mineral sin Gas (600ml)', 'Botella individual sellada', 2.00, '', 'Disponible', 'SI'],
+      ['PROD-009', 'Frutas y ensaladas', 'Ensalada de Frutas con Yogur y Miel', 'Papaya, plátano, manzana con yogur natural', 5.00, '', 'Disponible', 'SI'],
+      ['PROD-010', 'Frutas y ensaladas', 'Manzana / Plátano Seleccionado', 'Fruta lavada y lista para consumir', 1.50, '', 'Disponible', 'SI'],
+      ['PROD-011', 'Postres y dulces', 'Queque Casero de Vainilla / Zanahoria', 'Porción generosa horneada en el colegio', 2.50, '', 'Disponible', 'SI'],
+      ['PROD-012', 'Productos lácteos', 'Yogur Personal con Cereal (200ml)', 'Vaso individual sellado', 3.00, '', 'Disponible', 'SI'],
+      ['PROD-013', 'Combos y promociones', 'Combo Recreo: Sándwich de Pollo + Jugo', 'Ahorro especial de refrigerio', 6.00, '', 'Disponible', 'SI'],
+      ['PROD-014', 'Snacks y piqueos', 'Galleta Integral con Semillas', 'Opción saludable y energética', 1.50, '', 'Disponible', 'SI']
+    ];
+    hojaProd.getRange(2, 1, itemsIniciales.length, encProd.length).setValues(itemsIniciales);
+    SpreadsheetApp.flush();
+  }
+
+  // 2. Hoja de Saldos
+  let hojaSaldos = ss.getSheetByName(HOJA_CAFETERIA_SALDOS);
+  const encSaldos = ['DNI', 'Estudiante', 'Grado', 'Nivel', 'Saldo_Actual', 'Total_Recargado', 'Total_Consumido', 'Ultima_Actualizacion'];
+  if (!hojaSaldos) {
+    hojaSaldos = ss.insertSheet(HOJA_CAFETERIA_SALDOS);
+    hojaSaldos.appendRow(encSaldos);
+    hojaSaldos.getRange(1, 1, 1, encSaldos.length).setFontWeight('bold').setBackground('#1e293b').setFontColor('#ffffff');
+    SpreadsheetApp.flush();
+  }
+
+  // 3. Hoja de Recargas (Yape / Transferencias)
+  let hojaRecargas = ss.getSheetByName(HOJA_CAFETERIA_RECARGAS);
+  const encRecargas = ['ID_Recarga', 'Fecha_Registro', 'Hora_Registro', 'DNI', 'Estudiante', 'Grado', 'Monto', 'Metodo', 'Num_Operacion', 'URL_Comprobante', 'Estado', 'Validado_Por', 'Fecha_Validacion'];
+  if (!hojaRecargas) {
+    hojaRecargas = ss.insertSheet(HOJA_CAFETERIA_RECARGAS);
+    hojaRecargas.appendRow(encRecargas);
+    hojaRecargas.getRange(1, 1, 1, encRecargas.length).setFontWeight('bold').setBackground('#1e293b').setFontColor('#ffffff');
+    SpreadsheetApp.flush();
+  }
+
+  // 4. Hoja de Ventas y Consumos
+  let hojaVentas = ss.getSheetByName(HOJA_CAFETERIA_VENTAS);
+  const encVentas = ['ID_Venta', 'Fecha_Hora', 'DNI', 'Estudiante', 'Grado', 'Detalle_Productos', 'Total', 'Saldo_Anterior', 'Saldo_Restante', 'Metodo_Pago', 'Atendido_Por'];
+  if (!hojaVentas) {
+    hojaVentas = ss.insertSheet(HOJA_CAFETERIA_VENTAS);
+    hojaVentas.appendRow(encVentas);
+    hojaVentas.getRange(1, 1, 1, encVentas.length).setFontWeight('bold').setBackground('#1e293b').setFontColor('#ffffff');
+    SpreadsheetApp.flush();
+  }
+
+  // 5. Hoja de Pedidos Anticipados
+  let hojaPedidos = ss.getSheetByName(HOJA_CAFETERIA_PEDIDOS);
+  const encPedidos = ['ID_Pedido', 'Fecha_Registro', 'Fecha_Entrega', 'DNI', 'Estudiante', 'Grado', 'Detalle_Productos', 'Total', 'Turno_Entrega', 'Estado', 'Metodo_Pago', 'Notas'];
+  if (!hojaPedidos) {
+    hojaPedidos = ss.insertSheet(HOJA_CAFETERIA_PEDIDOS);
+    hojaPedidos.appendRow(encPedidos);
+    hojaPedidos.getRange(1, 1, 1, encPedidos.length).setFontWeight('bold').setBackground('#1e293b').setFontColor('#ffffff');
+    SpreadsheetApp.flush();
+  }
+
+  return { hojaProd, hojaSaldos, hojaRecargas, hojaVentas, hojaPedidos };
+}
+
+// ------------------------------------------------------------
+// PRODUCTOS Y MENÚ
+// ------------------------------------------------------------
+
+function obtenerProductosCafeteria(soloMenuHoy) {
+  asegurarHojasCafeteria();
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const hoja = ss.getSheetByName(HOJA_CAFETERIA_PRODUCTOS);
+  const ultFila = hoja.getLastRow();
+  if (ultFila <= 1) return { success: true, productos: [] };
+
+  const datos = hoja.getRange(2, 1, ultFila - 1, 8).getValues();
+  const productos = [];
+
+  for (let i = 0; i < datos.length; i++) {
+    const id = String(datos[i][0] || '').trim();
+    if (!id) continue;
+
+    const estado = String(datos[i][6] || 'Disponible').trim();
+    const enMenuHoy = String(datos[i][7] || 'SI').trim().toUpperCase() === 'SI';
+
+    if (soloMenuHoy && (!enMenuHoy || estado !== 'Disponible')) {
+      continue;
+    }
+
+    productos.push({
+      id: id,
+      categoria: String(datos[i][1] || 'Otros productos').trim(),
+      nombre: String(datos[i][2] || '').trim(),
+      descripcion: String(datos[i][3] || '').trim(),
+      precio: parseFloat(datos[i][4]) || 0,
+      fotoUrl: String(datos[i][5] || '').trim(),
+      estado: estado,
+      enMenuHoy: enMenuHoy
+    });
+  }
+
+  return { success: true, productos: productos };
+}
+
+function guardarProductoCafeteria(data) {
+  asegurarHojasCafeteria();
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const hoja = ss.getSheetByName(HOJA_CAFETERIA_PRODUCTOS);
+
+  const nombre = String(data.nombre || '').trim();
+  const categoria = String(data.categoria || 'Otros productos').trim();
+  const precio = parseFloat(data.precio) || 0;
+  const descripcion = String(data.descripcion || '').trim();
+  const estado = String(data.estado || 'Disponible').trim();
+  const enMenuHoy = data.enMenuHoy !== false ? 'SI' : 'NO';
+
+  if (!nombre || precio <= 0) {
+    return { success: false, message: 'El nombre y un precio válido son obligatorios.' };
+  }
+
+  let fotoUrl = String(data.fotoUrl || '').trim();
+  if (data.foto && data.foto.base64) {
+    const resDrive = subirArchivoADrive(
+      data.foto.base64, 
+      data.foto.nombre, 
+      data.foto.tipo || 'image/jpeg', 
+      'Cafeteria_Fotos'
+    );
+    if (resDrive && resDrive.success) {
+      fotoUrl = resDrive.idArchivo ? ('https://lh3.googleusercontent.com/d/' + resDrive.idArchivo) : resDrive.url;
+    }
+  }
+
+  const idExistente = String(data.id || '').trim();
+  const ultFila = hoja.getLastRow();
+
+  if (idExistente && ultFila > 1) {
+    const ids = hoja.getRange(2, 1, ultFila - 1, 1).getValues();
+    for (let i = 0; i < ids.length; i++) {
+      if (String(ids[i][0]).trim() === idExistente) {
+        hoja.getRange(i + 2, 2, 1, 7).setValues([[categoria, nombre, descripcion, precio, fotoUrl, estado, enMenuHoy]]);
+        SpreadsheetApp.flush();
+        return { success: true, message: 'Producto actualizado correctamente.', id: idExistente };
+      }
+    }
+  }
+
+  const tz = Session.getScriptTimeZone() || 'America/Lima';
+  const nuevoId = 'PROD-' + Utilities.formatDate(new Date(), tz, 'yyyyMMdd_HHmmss') + '-' + Math.floor(Math.random() * 900 + 100);
+  hoja.appendRow([nuevoId, categoria, nombre, descripcion, precio, fotoUrl, estado, enMenuHoy]);
+  SpreadsheetApp.flush();
+
+  return { success: true, message: 'Producto registrado con éxito.', id: nuevoId };
+}
+
+function toggleMenuHoyProducto(idProducto, nuevoEnMenuHoy) {
+  asegurarHojasCafeteria();
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const hoja = ss.getSheetByName(HOJA_CAFETERIA_PRODUCTOS);
+  const ultFila = hoja.getLastRow();
+  if (ultFila <= 1) return { success: false, message: 'Sin productos.' };
+
+  const ids = hoja.getRange(2, 1, ultFila - 1, 1).getValues();
+  for (let i = 0; i < ids.length; i++) {
+    if (String(ids[i][0]).trim() === idProducto) {
+      hoja.getRange(i + 2, 8).setValue(nuevoEnMenuHoy ? 'SI' : 'NO');
+      SpreadsheetApp.flush();
+      return { success: true, message: 'Disponibilidad en menú del día actualizada.' };
+    }
+  }
+  return { success: false, message: 'Producto no encontrado.' };
+}
+
+function eliminarProductoCafeteria(idProducto) {
+  asegurarHojasCafeteria();
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const hoja = ss.getSheetByName(HOJA_CAFETERIA_PRODUCTOS);
+  const ultFila = hoja.getLastRow();
+  if (ultFila <= 1) return { success: false, message: 'Sin productos.' };
+
+  const ids = hoja.getRange(2, 1, ultFila - 1, 1).getValues();
+  for (let i = 0; i < ids.length; i++) {
+    if (String(ids[i][0]).trim() === idProducto) {
+      hoja.deleteRow(i + 2);
+      SpreadsheetApp.flush();
+      return { success: true, message: 'Producto eliminado correctamente.' };
+    }
+  }
+  return { success: false, message: 'Producto no encontrado.' };
+}
+
+// ------------------------------------------------------------
+// GESTIÓN DE SALDOS Y MONEDERO ESCOLAR
+// ------------------------------------------------------------
+
+function obtenerSaldosMap() {
+  asegurarHojasCafeteria();
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const hoja = ss.getSheetByName(HOJA_CAFETERIA_SALDOS);
+  const ultFila = hoja.getLastRow();
+  const map = {};
+  if (ultFila <= 1) return map;
+
+  const datos = hoja.getRange(2, 1, ultFila - 1, 8).getValues();
+  for (let i = 0; i < datos.length; i++) {
+    const dni = String(datos[i][0] || '').trim();
+    if (dni) {
+      map[dni] = {
+        fila: i + 2,
+        dni: dni,
+        estudiante: String(datos[i][1] || '').trim(),
+        grado: String(datos[i][2] || '').trim(),
+        nivel: String(datos[i][3] || '').trim(),
+        saldo: parseFloat(datos[i][4]) || 0,
+        totalRecargado: parseFloat(datos[i][5]) || 0,
+        totalConsumido: parseFloat(datos[i][6]) || 0,
+        ultimaActualizacion: String(datos[i][7] || '').trim()
+      };
+    }
+  }
+  return map;
+}
+
+function obtenerSaldosCafeteria() {
+  const map = obtenerSaldosMap();
+  const lista = [];
+  const estMap = actualizarCacheEstudiantes() || {};
+
+  // Asegurar que todos los alumnos existan en el mapa de saldos
+  for (const dni in estMap) {
+    if (map[dni]) {
+      lista.push(map[dni]);
+    } else {
+      const e = estMap[dni];
+      lista.push({
+        fila: 0,
+        dni: dni,
+        estudiante: e.nombre || '',
+        grado: e.grado || '',
+        nivel: e.nivel || '',
+        saldo: 0,
+        totalRecargado: 0,
+        totalConsumido: 0,
+        ultimaActualizacion: '--'
+      });
+    }
+  }
+
+  lista.sort((a, b) => (a.estudiante || '').localeCompare(b.estudiante || ''));
+  return { success: true, saldos: lista };
+}
+
+function actualizarSaldoEstudiante(dni, deltaSaldo, esRecarga, esConsumo) {
+  asegurarHojasCafeteria();
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const hoja = ss.getSheetByName(HOJA_CAFETERIA_SALDOS);
+  const tz = Session.getScriptTimeZone() || 'America/Lima';
+  const fechaHora = Utilities.formatDate(new Date(), tz, 'dd/MM/yyyy HH:mm:ss');
+
+  const map = obtenerSaldosMap();
+  const item = map[dni];
+
+  if (item && item.fila > 0) {
+    const nuevoSaldo = Math.round((item.saldo + deltaSaldo) * 100) / 100;
+    const nuevoRecargado = esRecarga ? (Math.round((item.totalRecargado + Math.max(0, deltaSaldo)) * 100) / 100) : item.totalRecargado;
+    const nuevoConsumido = esConsumo ? (Math.round((item.totalConsumido + Math.abs(deltaSaldo)) * 100) / 100) : item.totalConsumido;
+
+    hoja.getRange(item.fila, 5, 1, 4).setValues([[nuevoSaldo, nuevoRecargado, nuevoConsumido, fechaHora]]);
+    SpreadsheetApp.flush();
+    return { success: true, saldoAnterior: item.saldo, nuevoSaldo: nuevoSaldo };
+  } else {
+    // Alumno nuevo en la tabla de saldos
+    const e = buscarEstudiante(dni) || {};
+    const nuevoSaldo = Math.round(deltaSaldo * 100) / 100;
+    const nuevoRecargado = esRecarga ? nuevoSaldo : 0;
+    const nuevoConsumido = esConsumo ? Math.abs(nuevoSaldo) : 0;
+
+    hoja.appendRow([
+      dni, 
+      e.nombre || 'Estudiante', 
+      e.grado || '', 
+      e.nivel || '', 
+      nuevoSaldo, 
+      nuevoRecargado, 
+      nuevoConsumido, 
+      fechaHora
+    ]);
+    SpreadsheetApp.flush();
+    return { success: true, saldoAnterior: 0, nuevoSaldo: nuevoSaldo };
+  }
+}
+
+function ajustarSaldoManual(data) {
+  const dni = String(data.dni || '').trim();
+  const monto = parseFloat(data.monto) || 0;
+  const motivo = String(data.motivo || 'Ajuste manual de cafetería').trim();
+  const operador = String(data.operador || 'Cajero').trim();
+
+  if (!dni || monto === 0) {
+    return { success: false, message: 'DNI y monto válido son requeridos.' };
+  }
+
+  const res = actualizarSaldoEstudiante(dni, monto, monto > 0, monto < 0);
+  if (res.success) {
+    // Registrar en movimientos
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const hojaV = ss.getSheetByName(HOJA_CAFETERIA_VENTAS);
+    const tz = Session.getScriptTimeZone() || 'America/Lima';
+    const ahoraStr = Utilities.formatDate(new Date(), tz, 'dd/MM/yyyy HH:mm:ss');
+    const idMov = 'AJUSTE-' + Utilities.formatDate(new Date(), tz, 'yyyyMMdd_HHmmss');
+    const e = buscarEstudiante(dni) || {};
+
+    hojaV.appendRow([
+      idMov, 
+      ahoraStr, 
+      dni, 
+      e.nombre || '', 
+      e.grado || '', 
+      'Ajuste de saldo: ' + motivo + ' (Op: ' + operador + ')', 
+      Math.abs(monto), 
+      res.saldoAnterior, 
+      res.nuevoSaldo, 
+      monto > 0 ? 'Abono Manual' : 'Descuento Manual', 
+      operador
+    ]);
+    SpreadsheetApp.flush();
+  }
+  return { success: true, message: 'Saldo actualizado correctamente.', ...res };
+}
+
+// ------------------------------------------------------------
+// RECARGAS YAPE Y TRANSFERENCIAS
+// ------------------------------------------------------------
+
+function reportarRecargaYape(data) {
+  asegurarHojasCafeteria();
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const hoja = ss.getSheetByName(HOJA_CAFETERIA_RECARGAS);
+
+  const dni = String(data.dni || '').trim();
+  const monto = parseFloat(data.monto) || 0;
+  const numOperacion = String(data.numOperacion || '').trim();
+
+  if (!dni || !/^\d{8}$/.test(dni)) {
+    return { success: false, message: 'DNI de estudiante inválido.' };
+  }
+  if (monto <= 0) {
+    return { success: false, message: 'El monto de recarga debe ser mayor a 0.' };
+  }
+
+  const e = buscarEstudiante(dni);
+  if (!e) {
+    return { success: false, message: 'Estudiante no encontrado con ese DNI.' };
+  }
+
+  let urlComprobante = '';
+  if (data.comprobante && data.comprobante.base64) {
+    const resDrive = subirArchivoADrive(
+      data.comprobante.base64,
+      data.comprobante.nombre || ('Yape_' + dni + '.jpg'),
+      data.comprobante.tipo || 'image/jpeg',
+      'Cafeteria_Comprobantes'
+    );
+    if (resDrive && resDrive.success) {
+      urlComprobante = resDrive.idArchivo ? ('https://lh3.googleusercontent.com/d/' + resDrive.idArchivo) : resDrive.url;
+    }
+  }
+
+  const tz = Session.getScriptTimeZone() || 'America/Lima';
+  const ahora = new Date();
+  const fReg = Utilities.formatDate(ahora, tz, 'dd/MM/yyyy');
+  const hReg = Utilities.formatDate(ahora, tz, 'HH:mm:ss');
+  const idRecarga = 'YAPE-' + Utilities.formatDate(ahora, tz, 'yyyyMMdd_HHmmss') + '-' + Math.floor(Math.random() * 900 + 100);
+
+  hoja.appendRow([
+    idRecarga,
+    "'" + fReg,
+    hReg,
+    dni,
+    e.nombre || '',
+    (e.grado ? e.grado + ' ' + (e.nivel || '') : ''),
+    monto,
+    'Yape',
+    numOperacion,
+    urlComprobante,
+    'Pendiente',
+    '',
+    ''
+  ]);
+  SpreadsheetApp.flush();
+
+  return {
+    success: true,
+    message: 'Recarga por Yape de S/ ' + monto.toFixed(2) + ' enviada. La cafetería validará el abono a la brevedad.',
+    idRecarga: idRecarga
+  };
+}
+
+function obtenerRecargasCafeteria(estadoFiltro) {
+  asegurarHojasCafeteria();
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const hoja = ss.getSheetByName(HOJA_CAFETERIA_RECARGAS);
+  const ultFila = hoja.getLastRow();
+  if (ultFila <= 1) return { success: true, recargas: [] };
+
+  const datos = hoja.getRange(2, 1, ultFila - 1, 13).getValues();
+  const tz = Session.getScriptTimeZone() || 'America/Lima';
+  const recargas = [];
+
+  for (let i = datos.length - 1; i >= 0; i--) {
+    const id = String(datos[i][0] || '').trim();
+    if (!id) continue;
+
+    const estado = String(datos[i][10] || 'Pendiente').trim();
+    if (estadoFiltro && estadoFiltro !== 'TODAS' && estado.toLowerCase() !== estadoFiltro.toLowerCase()) {
+      continue;
+    }
+
+    const fReg = datos[i][1];
+    const fechaRegStr = fReg instanceof Date ? Utilities.formatDate(fReg, tz, 'dd/MM/yyyy') : String(fReg || '').trim();
+
+    recargas.push({
+      id: id,
+      fecha: fechaRegStr,
+      hora: String(datos[i][2] || '').trim(),
+      dni: String(datos[i][3] || '').trim(),
+      estudiante: String(datos[i][4] || '').trim(),
+      grado: String(datos[i][5] || '').trim(),
+      monto: parseFloat(datos[i][6]) || 0,
+      metodo: String(datos[i][7] || 'Yape').trim(),
+      numOperacion: String(datos[i][8] || '').trim(),
+      urlComprobante: String(datos[i][9] || '').trim(),
+      estado: estado,
+      validadoPor: String(datos[i][11] || '').trim(),
+      fechaValidacion: String(datos[i][12] || '').trim()
+    });
+  }
+
+  return { success: true, recargas: recargas };
+}
+
+function procesarRecargaYape(idRecarga, accion, validadoPor) {
+  asegurarHojasCafeteria();
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const hoja = ss.getSheetByName(HOJA_CAFETERIA_RECARGAS);
+  const ultFila = hoja.getLastRow();
+  if (ultFila <= 1) return { success: false, message: 'Sin registros de recarga.' };
+
+  const datos = hoja.getRange(2, 1, ultFila - 1, 11).getValues();
+  const tz = Session.getScriptTimeZone() || 'America/Lima';
+  const ahoraStr = Utilities.formatDate(new Date(), tz, 'dd/MM/yyyy HH:mm:ss');
+  const usuario = validadoPor || 'Cajero Cafetería';
+
+  for (let i = 0; i < datos.length; i++) {
+    if (String(datos[i][0]).trim() === idRecarga) {
+      const estadoActual = String(datos[i][10] || '').trim();
+      if (estadoActual !== 'Pendiente') {
+        return { success: false, message: 'Esta recarga ya fue procesada anteriormente (' + estadoActual + ').' };
+      }
+
+      const fila = i + 2;
+      const dni = String(datos[i][3] || '').trim();
+      const monto = parseFloat(datos[i][6]) || 0;
+
+      if (accion === 'Aprobar') {
+        hoja.getRange(fila, 11, 1, 3).setValues([['Aprobada', usuario, ahoraStr]]);
+        SpreadsheetApp.flush();
+
+        // Abonar al saldo del estudiante
+        const resAbono = actualizarSaldoEstudiante(dni, monto, true, false);
+        return { 
+          success: true, 
+          message: 'Recarga de S/ ' + monto.toFixed(2) + ' APROBADA con éxito. Saldo nuevo: S/ ' + resAbono.nuevoSaldo.toFixed(2),
+          nuevoSaldo: resAbono.nuevoSaldo
+        };
+      } else {
+        hoja.getRange(fila, 11, 1, 3).setValues([['Rechazada', usuario, ahoraStr]]);
+        SpreadsheetApp.flush();
+        return { success: true, message: 'Recarga marcada como RECHAZADA.' };
+      }
+    }
+  }
+
+  return { success: false, message: 'Recarga no encontrada.' };
+}
+
+// ------------------------------------------------------------
+// VENTAS EN CAJA (POS) Y PEDIDOS ANTICIPADOS
+// ------------------------------------------------------------
+
+function registrarVentaCaja(data) {
+  asegurarHojasCafeteria();
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const hojaV = ss.getSheetByName(HOJA_CAFETERIA_VENTAS);
+
+  const dni = String(data.dni || '').trim();
+  const items = Array.isArray(data.items) ? data.items : [];
+  const total = parseFloat(data.total) || 0;
+  const metodoPago = String(data.metodoPago || 'Saldo').trim();
+  const atendidoPor = String(data.atendidoPor || 'Caja Principal').trim();
+
+  if (items.length === 0 || total <= 0) {
+    return { success: false, message: 'Debe incluir al menos un producto con monto válido.' };
+  }
+
+  let estudianteNombre = 'Cliente General';
+  let estudianteGrado = '';
+  let saldoAnterior = 0;
+  let saldoRestante = 0;
+
+  if (dni) {
+    const e = buscarEstudiante(dni);
+    if (e) {
+      estudianteNombre = e.nombre || '';
+      estudianteGrado = (e.grado ? e.grado + ' ' + (e.nivel || '') : '');
+    }
+  }
+
+  // Cobro con saldo de billetera escolar
+  if (metodoPago === 'Saldo') {
+    if (!dni) {
+      return { success: false, message: 'Se requiere el DNI del alumno para cobrar con saldo.' };
+    }
+
+    const map = obtenerSaldosMap();
+    const itemSaldo = map[dni] || { saldo: 0 };
+    saldoAnterior = itemSaldo.saldo;
+
+    if (saldoAnterior < total) {
+      return { 
+        success: false, 
+        message: 'Saldo insuficiente. Saldo actual: S/ ' + saldoAnterior.toFixed(2) + ' - Total venta: S/ ' + total.toFixed(2) 
+      };
+    }
+
+    const resDescuento = actualizarSaldoEstudiante(dni, -total, false, true);
+    saldoRestante = resDescuento.nuevoSaldo;
+  }
+
+  const tz = Session.getScriptTimeZone() || 'America/Lima';
+  const ahora = new Date();
+  const ahoraStr = Utilities.formatDate(ahora, tz, 'dd/MM/yyyy HH:mm:ss');
+  const idVenta = 'VENTA-' + Utilities.formatDate(ahora, tz, 'yyyyMMdd_HHmmss') + '-' + Math.floor(Math.random() * 900 + 100);
+
+  const detalleResumen = items.map(it => `${it.cantidad}x ${it.nombre} (S/ ${(it.precio * it.cantidad).toFixed(2)})`).join(', ');
+
+  hojaV.appendRow([
+    idVenta,
+    ahoraStr,
+    dni,
+    estudianteNombre,
+    estudianteGrado,
+    detalleResumen,
+    total,
+    saldoAnterior,
+    saldoRestante,
+    metodoPago,
+    atendidoPor
+  ]);
+  SpreadsheetApp.flush();
+
+  return {
+    success: true,
+    message: 'Venta registrada correctamente por S/ ' + total.toFixed(2) + '.',
+    ticket: {
+      idVenta: idVenta,
+      fechaHora: ahoraStr,
+      estudiante: estudianteNombre,
+      grado: estudianteGrado,
+      total: total,
+      metodoPago: metodoPago,
+      saldoRestante: saldoRestante,
+      items: items
+    }
+  };
+}
+
+function registrarPedidoPadre(data) {
+  asegurarHojasCafeteria();
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const hojaP = ss.getSheetByName(HOJA_CAFETERIA_PEDIDOS);
+
+  const dni = String(data.dni || '').trim();
+  const items = Array.isArray(data.items) ? data.items : [];
+  const total = parseFloat(data.total) || 0;
+  const fechaEntrega = String(data.fechaEntrega || '').trim();
+  const turnoEntrega = String(data.turnoEntrega || 'Recreo').trim();
+  const notas = String(data.notas || '').trim();
+
+  if (!dni || items.length === 0 || total <= 0) {
+    return { success: false, message: 'Datos incompletos para procesar el pedido.' };
+  }
+
+  const e = buscarEstudiante(dni);
+  if (!e) return { success: false, message: 'Estudiante no encontrado.' };
+
+  // Verificar saldo del estudiante
+  const map = obtenerSaldosMap();
+  const itemSaldo = map[dni] || { saldo: 0 };
+  if (itemSaldo.saldo < total) {
+    return {
+      success: false,
+      message: 'Saldo insuficiente para programar este pedido. Saldo actual: S/ ' + itemSaldo.saldo.toFixed(2) + '. Por favor recargue por Yape primero.'
+    };
+  }
+
+  // Descontar saldo y reservar pedido
+  const resDescuento = actualizarSaldoEstudiante(dni, -total, false, true);
+
+  const tz = Session.getScriptTimeZone() || 'America/Lima';
+  const ahora = new Date();
+  const ahoraStr = Utilities.formatDate(ahora, tz, 'dd/MM/yyyy HH:mm:ss');
+  const idPedido = 'PED-' + Utilities.formatDate(ahora, tz, 'yyyyMMdd_HHmmss') + '-' + Math.floor(Math.random() * 900 + 100);
+  const detalleStr = items.map(it => `${it.cantidad}x ${it.nombre}`).join(', ');
+
+  hojaP.appendRow([
+    idPedido,
+    ahoraStr,
+    fechaEntrega || Utilities.formatDate(ahora, tz, 'dd/MM/yyyy'),
+    dni,
+    e.nombre || '',
+    (e.grado ? e.grado + ' ' + (e.nivel || '') : ''),
+    detalleStr,
+    total,
+    turnoEntrega,
+    'Pendiente',
+    'Saldo Billetera',
+    notas
+  ]);
+  SpreadsheetApp.flush();
+
+  return {
+    success: true,
+    message: 'Pedido programado con éxito. Se descontó S/ ' + total.toFixed(2) + ' de su saldo disponible.',
+    nuevoSaldo: resDescuento.nuevoSaldo,
+    idPedido: idPedido
+  };
+}
+
+function obtenerPedidosCafeteria(filtroFecha, filtroEstado) {
+  asegurarHojasCafeteria();
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const hojaP = ss.getSheetByName(HOJA_CAFETERIA_PEDIDOS);
+  const ultFila = hojaP.getLastRow();
+  if (ultFila <= 1) return { success: true, pedidos: [] };
+
+  const datos = hojaP.getRange(2, 1, ultFila - 1, 12).getValues();
+  const tz = Session.getScriptTimeZone() || 'America/Lima';
+  const pedidos = [];
+
+  for (let i = datos.length - 1; i >= 0; i--) {
+    const id = String(datos[i][0] || '').trim();
+    if (!id) continue;
+
+    const fEnt = datos[i][2];
+    const fechaEntStr = fEnt instanceof Date ? Utilities.formatDate(fEnt, tz, 'dd/MM/yyyy') : String(fEnt || '').trim();
+    const estado = String(datos[i][9] || 'Pendiente').trim();
+
+    if (filtroFecha && fechaEntStr !== filtroFecha) continue;
+    if (filtroEstado && filtroEstado !== 'TODOS' && estado.toLowerCase() !== filtroEstado.toLowerCase()) continue;
+
+    pedidos.push({
+      id: id,
+      fechaRegistro: String(datos[i][1] || '').trim(),
+      fechaEntrega: fechaEntStr,
+      dni: String(datos[i][3] || '').trim(),
+      estudiante: String(datos[i][4] || '').trim(),
+      grado: String(datos[i][5] || '').trim(),
+      detalle: String(datos[i][6] || '').trim(),
+      total: parseFloat(datos[i][7]) || 0,
+      turnoEntrega: String(datos[i][8] || 'Recreo').trim(),
+      estado: estado,
+      metodoPago: String(datos[i][10] || '').trim(),
+      notas: String(datos[i][11] || '').trim()
+    });
+  }
+
+  return { success: true, pedidos: pedidos };
+}
+
+function cambiarEstadoPedido(idPedido, nuevoEstado) {
+  asegurarHojasCafeteria();
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const hojaP = ss.getSheetByName(HOJA_CAFETERIA_PEDIDOS);
+  const ultFila = hojaP.getLastRow();
+  if (ultFila <= 1) return { success: false, message: 'Sin pedidos.' };
+
+  const ids = hojaP.getRange(2, 1, ultFila - 1, 1).getValues();
+  for (let i = 0; i < ids.length; i++) {
+    if (String(ids[i][0]).trim() === idPedido) {
+      hojaP.getRange(i + 2, 10).setValue(nuevoEstado || 'Entregado');
+      SpreadsheetApp.flush();
+      return { success: true, message: 'Estado del pedido actualizado a ' + nuevoEstado + '.' };
+    }
+  }
+  return { success: false, message: 'Pedido no encontrado.' };
+}
+
+// ------------------------------------------------------------
+// HISTORIAL DEL ESTUDIANTE (PARA EL PORTAL DE PADRES)
+// ------------------------------------------------------------
+
+function obtenerHistorialEstudianteCafeteria(dni) {
+  asegurarHojasCafeteria();
+  const map = obtenerSaldosMap();
+  const saldoInfo = map[dni] || { saldo: 0, totalRecargado: 0, totalConsumido: 0 };
+
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const tz = Session.getScriptTimeZone() || 'America/Lima';
+
+  // 1. Obtener recargas de este DNI
+  const hojaR = ss.getSheetByName(HOJA_CAFETERIA_RECARGAS);
+  const ultR = hojaR.getLastRow();
+  const recargas = [];
+  if (ultR > 1) {
+    const datosR = hojaR.getRange(2, 1, ultR - 1, 11).getValues();
+    for (let i = datosR.length - 1; i >= 0; i--) {
+      if (String(datosR[i][3]).trim() === dni) {
+        const f = datosR[i][1];
+        const fStr = f instanceof Date ? Utilities.formatDate(f, tz, 'dd/MM/yyyy') : String(f || '').trim();
+        recargas.push({
+          id: String(datosR[i][0] || ''),
+          fecha: fStr,
+          hora: String(datosR[i][2] || ''),
+          monto: parseFloat(datosR[i][6]) || 0,
+          metodo: String(datosR[i][7] || 'Yape'),
+          numOperacion: String(datosR[i][8] || ''),
+          urlComprobante: String(datosR[i][9] || ''),
+          estado: String(datosR[i][10] || 'Pendiente')
+        });
+      }
+    }
+  }
+
+  // 2. Obtener consumos/ventas de este DNI
+  const hojaV = ss.getSheetByName(HOJA_CAFETERIA_VENTAS);
+  const ultV = hojaV.getLastRow();
+  const consumos = [];
+  if (ultV > 1) {
+    const datosV = hojaV.getRange(2, 1, ultV - 1, 10).getValues();
+    for (let i = datosV.length - 1; i >= 0; i--) {
+      if (String(datosV[i][2]).trim() === dni) {
+        consumos.push({
+          id: String(datosV[i][0] || ''),
+          fechaHora: String(datosV[i][1] || ''),
+          detalle: String(datosV[i][5] || ''),
+          total: parseFloat(datosV[i][6]) || 0,
+          saldoRestante: parseFloat(datosV[i][8]) || 0,
+          metodo: String(datosV[i][9] || 'Saldo')
+        });
+      }
+    }
+  }
+
+  // 3. Obtener pedidos programados de este DNI
+  const hojaP = ss.getSheetByName(HOJA_CAFETERIA_PEDIDOS);
+  const ultP = hojaP.getLastRow();
+  const pedidos = [];
+  if (ultP > 1) {
+    const datosP = hojaP.getRange(2, 1, ultP - 1, 10).getValues();
+    for (let i = datosP.length - 1; i >= 0; i--) {
+      if (String(datosP[i][3]).trim() === dni) {
+        const f = datosP[i][2];
+        const fStr = f instanceof Date ? Utilities.formatDate(f, tz, 'dd/MM/yyyy') : String(f || '').trim();
+        pedidos.push({
+          id: String(datosP[i][0] || ''),
+          fechaEntrega: fStr,
+          detalle: String(datosP[i][6] || ''),
+          total: parseFloat(datosP[i][7]) || 0,
+          turno: String(datosP[i][8] || 'Recreo'),
+          estado: String(datosP[i][9] || 'Pendiente')
+        });
+      }
+    }
+  }
+
+  return {
+    success: true,
+    saldoActual: saldoInfo.saldo,
+    totalRecargado: saldoInfo.totalRecargado,
+    totalConsumido: saldoInfo.totalConsumido,
+    recargas: recargas,
+    consumos: consumos,
+    pedidos: pedidos
+  };
+}
+
+// ------------------------------------------------------------
+// REPORTE FINANCIERO Y CONTROL PARA DIRECCIÓN
+// ------------------------------------------------------------
+
+function obtenerReporteCafeteria() {
+  asegurarHojasCafeteria();
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const tz = Session.getScriptTimeZone() || 'America/Lima';
+  const fechaHoyStr = Utilities.formatDate(new Date(), tz, 'dd/MM/yyyy');
+
+  // Ventas de hoy
+  const hojaV = ss.getSheetByName(HOJA_CAFETERIA_VENTAS);
+  const ultV = hojaV.getLastRow();
+  let ventasHoyTotal = 0;
+  let ventasHoyCantidad = 0;
+  let ventasMesTotal = 0;
+  const productosConteo = {};
+
+  if (ultV > 1) {
+    const datosV = hojaV.getRange(2, 1, ultV - 1, 10).getValues();
+    const mesActual = (new Date()).getMonth() + 1;
+    const anoActual = (new Date()).getFullYear();
+
+    for (let i = 0; i < datosV.length; i++) {
+      const fHora = String(datosV[i][1] || '').trim();
+      const total = parseFloat(datosV[i][6]) || 0;
+      const detalle = String(datosV[i][5] || '').trim();
+
+      if (fHora.startsWith(fechaHoyStr)) {
+        ventasHoyTotal += total;
+        ventasHoyCantidad++;
+      }
+
+      // Check mes
+      const parts = fHora.split('/');
+      if (parts.length >= 3 && parseInt(parts[1]) === mesActual && parseInt(parts[2]) === anoActual) {
+        ventasMesTotal += total;
+      }
+
+      // Contar popularidad de productos
+      const items = detalle.split(',');
+      items.forEach(it => {
+        const clean = it.replace(/^\s*\d+x\s*/, '').replace(/\s*\(.*\)/, '').trim();
+        if (clean && !clean.startsWith('Ajuste')) {
+          productosConteo[clean] = (productosConteo[clean] || 0) + 1;
+        }
+      });
+    }
+  }
+
+  // Dinero en custodia (saldos totales de alumnos)
+  const map = obtenerSaldosMap();
+  let saldoTotalCustodia = 0;
+  let alumnosConSaldo = 0;
+  for (const dni in map) {
+    if (map[dni].saldo > 0) {
+      saldoTotalCustodia += map[dni].saldo;
+      alumnosConSaldo++;
+    }
+  }
+
+  // Recargas pendientes
+  const hojaR = ss.getSheetByName(HOJA_CAFETERIA_RECARGAS);
+  const ultR = hojaR.getLastRow();
+  let recargasPendientesCantidad = 0;
+  let recargasPendientesMonto = 0;
+  if (ultR > 1) {
+    const datosR = hojaR.getRange(2, 7, ultR - 1, 5).getValues();
+    for (let i = 0; i < datosR.length; i++) {
+      const st = String(datosR[i][4] || '').trim();
+      if (st === 'Pendiente') {
+        recargasPendientesCantidad++;
+        recargasPendientesMonto += (parseFloat(datosR[i][0]) || 0);
+      }
+    }
+  }
+
+  // Top 5 productos
+  const topProductos = Object.keys(productosConteo)
+    .map(k => ({ nombre: k, cantidad: productosConteo[k] }))
+    .sort((a, b) => b.cantidad - a.cantidad)
+    .slice(0, 5);
+
+  return {
+    success: true,
+    ventasHoyTotal: Math.round(ventasHoyTotal * 100) / 100,
+    ventasHoyCantidad: ventasHoyCantidad,
+    ventasMesTotal: Math.round(ventasMesTotal * 100) / 100,
+    saldoTotalCustodia: Math.round(saldoTotalCustodia * 100) / 100,
+    alumnosConSaldo: alumnosConSaldo,
+    recargasPendientesCantidad: recargasPendientesCantidad,
+    recargasPendientesMonto: Math.round(recargasPendientesMonto * 100) / 100,
+    topProductos: topProductos
+  };
 }

@@ -62,6 +62,17 @@ export default function Header() {
             <span>Comunicados</span>
           </NavLink>
           <NavLink
+            to="/cafeteria"
+            className={({ isActive }) =>
+              `rounded-xl px-4 py-2 text-sm font-semibold flex items-center gap-1.5 ${
+                isActive ? 'bg-amber-600 text-white shadow-lg shadow-amber-600/30' : 'text-amber-300 hover:bg-amber-900/40'
+              }`
+            }
+          >
+            <span>🍽️</span>
+            <span>Cafetería</span>
+          </NavLink>
+          <NavLink
             to="/docentes"
             className={({ isActive }) =>
               `rounded-xl px-4 py-2 text-sm font-semibold flex items-center gap-1.5 ${

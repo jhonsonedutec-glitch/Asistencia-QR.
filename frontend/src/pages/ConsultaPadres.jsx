@@ -1,5 +1,17 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { obtenerHistorialPadre, obtenerTareas, obtenerComunicados, getFechaHoyLocal, normalizarFecha, calcularEstadoTarea } from '../services/api';
+import { 
+  obtenerHistorialPadre, 
+  obtenerTareas, 
+  obtenerComunicados, 
+  obtenerProductosCafeteria, 
+  obtenerHistorialEstudianteCafeteria, 
+  reportarRecargaYape, 
+  registrarPedidoPadre, 
+  CATEGORIAS_CAFETERIA,
+  getFechaHoyLocal, 
+  normalizarFecha, 
+  calcularEstadoTarea 
+} from '../services/api';
 
 const STORAGE_KEY = 'ultimo_dni_padre';
 
@@ -22,6 +34,25 @@ const ConsultaPadres = () => {
   const [comunicados, setComunicados] = useState([]);
   const [loadingComunicados, setLoadingComunicados] = useState(false);
   const [modalBanner, setModalBanner] = useState(null);
+
+  // Estados de Cafetería y Lonchera
+  const [cafeteriaHistorial, setCafeteriaHistorial] = useState(null);
+  const [loadingCafeteria, setLoadingCafeteria] = useState(false);
+  const [menuHoy, setMenuHoy] = useState([]);
+  const [loadingMenu, setLoadingMenu] = useState(false);
+  const [categoriaMenuPadre, setCategoriaMenuPadre] = useState('TODAS');
+  const [carritoPadre, setCarritoPadre] = useState([]);
+  const [turnoPedido, setTurnoPedido] = useState('RECREO'); // RECREO | ALMUERZO
+  const [notaPedido, setNotaPedido] = useState('');
+  const [enviandoPedido, setEnviandoPedido] = useState(false);
+  const [modalRecargaYape, setModalRecargaYape] = useState(false);
+  const [montoYape, setMontoYape] = useState('');
+  const [codigoOpYape, setCodigoOpYape] = useState('');
+  const [celularYape, setCelularYape] = useState('');
+  const [comprobanteYapeFile, setComprobanteYapeFile] = useState(null);
+  const [enviandoRecarga, setEnviandoRecarga] = useState(false);
+  const [toastCafeteria, setToastCafeteria] = useState(null);
+  const [subTabMovimientos, setSubTabMovimientos] = useState('consumos'); // consumos | recargas | pedidos
 
   // Consultar automáticamente si ya hay un DNI guardado al cargar la página
   useEffect(() => {
@@ -71,6 +102,26 @@ const ConsultaPadres = () => {
           }).finally(() => {
             setLoadingComunicados(false);
           });
+
+          // Cargar datos de Cafetería (billetera, saldo, consumos y recargas)
+          setLoadingCafeteria(true);
+          obtenerHistorialEstudianteCafeteria(dniAConsultar).then(cafRes => {
+            if (cafRes && cafRes.success) {
+              setCafeteriaHistorial(cafRes);
+            }
+          }).finally(() => {
+            setLoadingCafeteria(false);
+          });
+
+          // Cargar menú del día disponible
+          setLoadingMenu(true);
+          obtenerProductosCafeteria(true).then(pRes => {
+            if (pRes && pRes.success && Array.isArray(pRes.productos)) {
+              setMenuHoy(pRes.productos);
+            }
+          }).finally(() => {
+            setLoadingMenu(false);
+          });
         }
       } else {
         setError(result.message || 'No se encontró el historial para este DNI.');
@@ -93,6 +144,8 @@ const ConsultaPadres = () => {
     setError(null);
     setTareas([]);
     setComunicados([]);
+    setCafeteriaHistorial(null);
+    setCarritoPadre([]);
     try {
       localStorage.removeItem(STORAGE_KEY);
     } catch {}
@@ -110,6 +163,179 @@ const ConsultaPadres = () => {
   const comunicadosActivos = useMemo(() => {
     return comunicados.filter(c => c.estado === 'Activo');
   }, [comunicados]);
+
+  const showCafeteriaToast = (mensaje, tipo = 'success') => {
+    setToastCafeteria({ mensaje, tipo });
+    setTimeout(() => setToastCafeteria(null), 4500);
+  };
+
+  const recargarDatosCafeteria = async (dniConsultar) => {
+    if (!dniConsultar) return;
+    const res = await obtenerHistorialEstudianteCafeteria(dniConsultar);
+    if (res && res.success) {
+      setCafeteriaHistorial(res);
+    }
+  };
+
+  // Carrito de compras del padre
+  const agregarAlCarritoPadre = (prod) => {
+    setCarritoPadre(prev => {
+      const idx = prev.findIndex(item => item.idProducto === prod.idProducto);
+      if (idx !== -1) {
+        const clon = [...prev];
+        clon[idx].cantidad += 1;
+        clon[idx].subtotal = Number((clon[idx].cantidad * clon[idx].precio).toFixed(2));
+        return clon;
+      } else {
+        return [...prev, {
+          idProducto: prod.idProducto,
+          nombre: prod.nombre,
+          precio: Number(prod.precio || 0),
+          cantidad: 1,
+          subtotal: Number(prod.precio || 0)
+        }];
+      }
+    });
+    showCafeteriaToast(`Agregado al pedido: ${prod.nombre}`);
+  };
+
+  const modificarCantidadCarritoPadre = (idProducto, delta) => {
+    setCarritoPadre(prev => {
+      return prev.map(item => {
+        if (item.idProducto === idProducto) {
+          const nuevaCant = item.cantidad + delta;
+          if (nuevaCant <= 0) return null;
+          return {
+            ...item,
+            cantidad: nuevaCant,
+            subtotal: Number((nuevaCant * item.precio).toFixed(2))
+          };
+        }
+        return item;
+      }).filter(Boolean);
+    });
+  };
+
+  const totalCarritoPadre = useMemo(() => {
+    return Number(carritoPadre.reduce((acc, it) => acc + (it.subtotal || 0), 0).toFixed(2));
+  }, [carritoPadre]);
+
+  // Enviar pedido anticipado del padre
+  const handleConfirmarPedidoPadre = async () => {
+    if (!data || !data.estudiante) return;
+    if (carritoPadre.length === 0) {
+      showCafeteriaToast('El pedido está vacío. Elige productos del menú.', 'error');
+      return;
+    }
+
+    const saldoActual = Number(cafeteriaHistorial?.saldo?.saldoActual || 0);
+    if (saldoActual < totalCarritoPadre) {
+      showCafeteriaToast(`Saldo insuficiente. Tu saldo es S/ ${saldoActual.toFixed(2)} y el pedido suma S/ ${totalCarritoPadre.toFixed(2)}. Por favor recarga por Yape.`, 'error');
+      return;
+    }
+
+    if (!confirm(`¿Confirmas el pedido de S/ ${totalCarritoPadre.toFixed(2)} para el ${turnoPedido} de tu hijo/a? El monto se descontará de su billetera escolar.`)) {
+      return;
+    }
+
+    setEnviandoPedido(true);
+    try {
+      const hoyISO = getFechaHoyLocal();
+      const res = await registrarPedidoPadre({
+        dni: data.estudiante.dni,
+        nombres: data.estudiante.nombre,
+        grado: data.estudiante.grado,
+        fechaEntrega: hoyISO,
+        turnoEntrega: turnoPedido,
+        items: carritoPadre,
+        total: totalCarritoPadre,
+        notaPadre: notaPedido.trim()
+      });
+
+      if (res && res.success) {
+        showCafeteriaToast('¡Pedido recibido por la cafetería! La cocina lo preparará para la hora indicada.');
+        setCarritoPadre([]);
+        setNotaPedido('');
+        recargarDatosCafeteria(data.estudiante.dni);
+      } else {
+        showCafeteriaToast(res.message || 'No se pudo enviar el pedido.', 'error');
+      }
+    } catch (err) {
+      showCafeteriaToast('Error al enviar pedido: ' + err.message, 'error');
+    } finally {
+      setEnviandoPedido(false);
+    }
+  };
+
+  // Reportar Recarga Yape desde el portal
+  const handleEnviarRecargaYapeSubmit = async (e) => {
+    e.preventDefault();
+    if (!data || !data.estudiante) return;
+
+    const montoNum = parseFloat(montoYape);
+    if (isNaN(montoNum) || montoNum <= 0) {
+      showCafeteriaToast('Ingresa un monto válido mayor a 0', 'error');
+      return;
+    }
+
+    if (!codigoOpYape.trim()) {
+      showCafeteriaToast('El código de operación de Yape es necesario para validar tu pago.', 'error');
+      return;
+    }
+
+    setEnviandoRecarga(true);
+    try {
+      let comprobanteBase64 = '';
+      let comprobanteNombre = '';
+      let comprobanteMime = '';
+
+      if (comprobanteYapeFile) {
+        if (comprobanteYapeFile.size > 4 * 1024 * 1024) {
+          showCafeteriaToast('El comprobante no debe superar los 4MB.', 'error');
+          setEnviandoRecarga(false);
+          return;
+        }
+
+        const base64Data = await new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result.split(',')[1]);
+          reader.readAsDataURL(comprobanteYapeFile);
+        });
+        comprobanteBase64 = base64Data;
+        comprobanteNombre = comprobanteYapeFile.name;
+        comprobanteMime = comprobanteYapeFile.type;
+      }
+
+      const res = await reportarRecargaYape({
+        dni: data.estudiante.dni,
+        nombres: data.estudiante.nombre,
+        grado: data.estudiante.grado,
+        monto: montoNum,
+        codigoOperacion: codigoOpYape.trim(),
+        telefonoOrigen: celularYape.trim(),
+        comprobanteBase64,
+        comprobanteNombre,
+        comprobanteMime,
+        registradoPor: 'Padre de Familia (Portal)'
+      });
+
+      if (res && res.success) {
+        showCafeteriaToast('¡Comprobante enviado con éxito! La cafetería revisará el abono y actualizará el saldo de tu hijo/a.');
+        setModalRecargaYape(false);
+        setMontoYape('');
+        setCodigoOpYape('');
+        setCelularYape('');
+        setComprobanteYapeFile(null);
+        recargarDatosCafeteria(data.estudiante.dni);
+      } else {
+        showCafeteriaToast(res.message || 'No se pudo reportar la recarga.', 'error');
+      }
+    } catch (err) {
+      showCafeteriaToast('Error al enviar comprobante: ' + err.message, 'error');
+    } finally {
+      setEnviandoRecarga(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8 font-sans">
@@ -242,6 +468,24 @@ const ConsultaPadres = () => {
                 {comunicadosActivos.length > 0 && (
                   <span className="rounded-full bg-amber-500 text-white text-[10px] font-bold px-2 py-0.5">
                     {comunicadosActivos.length}
+                  </span>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setPestanaActiva('cafeteria')}
+                className={`pb-3 px-3 sm:px-4 font-bold text-xs sm:text-sm flex items-center gap-1.5 border-b-2 transition-all ${
+                  pestanaActiva === 'cafeteria'
+                    ? 'border-amber-500 text-amber-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                <span>🍽️</span>
+                <span>Cafetería y Lonchera</span>
+                {cafeteriaHistorial?.saldo?.saldoActual !== undefined && (
+                  <span className="rounded-full bg-amber-100 text-amber-800 border border-amber-300 text-[10px] font-black px-2 py-0.5">
+                    S/ {Number(cafeteriaHistorial.saldo.saldoActual).toFixed(2)}
                   </span>
                 )}
               </button>
@@ -565,6 +809,419 @@ const ConsultaPadres = () => {
                     })}
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* CONTENIDO 4: CAFETERÍA Y LONCHERA ESCOLAR */}
+            {pestanaActiva === 'cafeteria' && (
+              <div className="p-4 sm:p-6 animate-in fade-in duration-150 space-y-6">
+
+                {/* Toast de confirmación de cafetería */}
+                {toastCafeteria && (
+                  <div className={`p-4 rounded-xl text-sm font-semibold flex items-center gap-2.5 shadow-lg ${
+                    toastCafeteria.tipo === 'error'
+                      ? 'bg-rose-50 text-rose-800 border border-rose-200'
+                      : 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                  }`}>
+                    <span>{toastCafeteria.tipo === 'error' ? '⚠️' : '✅'}</span>
+                    <span>{toastCafeteria.mensaje}</span>
+                  </div>
+                )}
+
+                {/* TARJETA HERO: BILLETERA DIGITAL ESCOLAR */}
+                <div className="bg-gradient-to-br from-amber-500 via-orange-500 to-amber-600 rounded-3xl p-6 text-white shadow-xl relative overflow-hidden">
+                  <div className="absolute -right-6 -bottom-6 w-36 h-36 bg-white/10 rounded-full blur-2xl"></div>
+                  
+                  <div className="relative z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div>
+                      <div className="flex items-center gap-2 text-amber-100 text-xs font-black uppercase tracking-wider">
+                        <span>💳 Billetera Digital Escolar</span>
+                        <span>·</span>
+                        <span>IEP Millenium</span>
+                      </div>
+                      <div className="mt-2 text-4xl sm:text-5xl font-black font-mono tracking-tight drop-shadow-sm">
+                        S/ {Number(cafeteriaHistorial?.saldo?.saldoActual || 0).toFixed(2)}
+                      </div>
+                      <p className="text-amber-100 text-xs mt-1">
+                        Saldo disponible para consumos en cafetería y pedidos de lonchera.
+                      </p>
+                    </div>
+
+                    <div className="flex flex-col gap-2 sm:items-end">
+                      <button
+                        onClick={() => setModalRecargaYape(true)}
+                        className="bg-white hover:bg-amber-50 text-amber-900 font-extrabold px-5 py-3 rounded-2xl text-sm shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2"
+                      >
+                        <span className="text-lg">📱</span>
+                        <span>Recargar con Yape</span>
+                      </button>
+
+                      <button
+                        onClick={() => recargarDatosCafeteria(data.estudiante.dni)}
+                        className="text-white/80 hover:text-white text-xs font-semibold flex items-center gap-1 self-center sm:self-end pt-1"
+                      >
+                        <span>🔄</span>
+                        <span>Actualizar saldo</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Resumen de totales */}
+                  <div className="mt-5 pt-4 border-t border-white/20 grid grid-cols-2 gap-3 text-xs">
+                    <div className="bg-black/10 rounded-xl p-2.5 backdrop-blur-sm">
+                      <span className="text-amber-200 block text-[10px] font-bold uppercase">Total Recargado</span>
+                      <strong className="text-white text-sm font-mono">
+                        S/ {Number(cafeteriaHistorial?.saldo?.totalRecargado || 0).toFixed(2)}
+                      </strong>
+                    </div>
+                    <div className="bg-black/10 rounded-xl p-2.5 backdrop-blur-sm">
+                      <span className="text-amber-200 block text-[10px] font-bold uppercase">Total Consumido</span>
+                      <strong className="text-white text-sm font-mono">
+                        S/ {Number(cafeteriaHistorial?.saldo?.totalConsumido || 0).toFixed(2)}
+                      </strong>
+                    </div>
+                  </div>
+                </div>
+
+                {/* MENÚ ESCOLAR DEL DÍA: CATÁLOGO */}
+                <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-sm">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+                    <div>
+                      <h4 className="font-extrabold text-gray-900 text-base flex items-center gap-2">
+                        <span>🥪</span>
+                        <span>Menú del Día en Cafetería</span>
+                      </h4>
+                      <p className="text-xs text-gray-500">
+                        Alimentos frescos disponibles hoy para el recreo o almuerzo.
+                      </p>
+                    </div>
+
+                    {/* Filtro categoría */}
+                    <select
+                      value={categoriaMenuPadre}
+                      onChange={(e) => setCategoriaMenuPadre(e.target.value)}
+                      className="bg-gray-50 border border-gray-300 rounded-xl px-3 py-1.5 text-xs text-gray-800 font-semibold focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    >
+                      <option value="TODAS">Todas las categorías</option>
+                      {CATEGORIAS_CAFETERIA.map(cat => (
+                        <option key={cat} value={cat}>{cat}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Grid de productos del menú */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                    {menuHoy
+                      .filter(p => categoriaMenuPadre === 'TODAS' || p.categoria === categoriaMenuPadre)
+                      .map(prod => (
+                        <div
+                          key={prod.idProducto}
+                          className="border border-gray-200 hover:border-amber-400 rounded-2xl p-3 flex flex-col justify-between transition-all hover:shadow-md bg-white"
+                        >
+                          <div>
+                            {/* Imagen o Placeholder */}
+                            <div className="w-full h-28 bg-gray-100 rounded-xl overflow-hidden mb-2 relative flex items-center justify-center">
+                              {prod.imagenUrl ? (
+                                <img
+                                  src={prod.imagenUrl}
+                                  alt={prod.nombre}
+                                  className="w-full h-full object-cover"
+                                  onError={(e) => { e.target.style.display = 'none'; }}
+                                />
+                              ) : (
+                                <span className="text-3xl opacity-60">🥪</span>
+                              )}
+                              <span className="absolute top-1.5 right-1.5 bg-gray-900/80 backdrop-blur text-white text-[10px] font-black px-2 py-0.5 rounded-lg">
+                                S/ {Number(prod.precio || 0).toFixed(2)}
+                              </span>
+                            </div>
+
+                            <div className="font-bold text-gray-900 text-xs line-clamp-1">{prod.nombre}</div>
+                            <div className="text-[10px] text-gray-400 truncate">{prod.categoria}</div>
+                            {prod.descripcion && (
+                              <p className="text-[11px] text-gray-600 line-clamp-2 mt-1">{prod.descripcion}</p>
+                            )}
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => agregarAlCarritoPadre(prod)}
+                            className="mt-3 w-full bg-amber-50 hover:bg-amber-500 text-amber-800 hover:text-white border border-amber-300 hover:border-amber-500 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5"
+                          >
+                            <span>+</span>
+                            <span>Pedir para Lonchera</span>
+                          </button>
+                        </div>
+                      ))}
+
+                    {menuHoy.length === 0 && (
+                      <div className="col-span-full py-8 text-center text-gray-400 text-xs">
+                        No hay productos marcados en el menú de hoy en este momento.
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* CARRITO DE PEDIDO DEL PADRE (Si hay items agregados) */}
+                {carritoPadre.length > 0 && (
+                  <div className="bg-amber-50/80 border-2 border-amber-400 rounded-3xl p-5 shadow-lg space-y-4 animate-in slide-in-from-bottom-2">
+                    <div className="flex items-center justify-between pb-3 border-b border-amber-200">
+                      <div className="font-black text-amber-950 text-base flex items-center gap-2">
+                        <span>🛒</span>
+                        <span>Tu Pedido para Hoy</span>
+                      </div>
+                      <button
+                        onClick={() => setCarritoPadre([])}
+                        className="text-xs text-rose-600 hover:text-rose-800 font-bold"
+                      >
+                        Vaciar
+                      </button>
+                    </div>
+
+                    <div className="space-y-2 divide-y divide-amber-200/60">
+                      {carritoPadre.map(item => (
+                        <div key={item.idProducto} className="pt-2 flex items-center justify-between text-xs">
+                          <div className="flex-1">
+                            <span className="font-bold text-gray-900">{item.nombre}</span>
+                            <span className="text-gray-500 block text-[11px]">S/ {item.precio.toFixed(2)} c/u</span>
+                          </div>
+
+                          <div className="flex items-center gap-2 bg-white border border-amber-300 rounded-lg px-2 py-0.5">
+                            <button
+                              onClick={() => modificarCantidadCarritoPadre(item.idProducto, -1)}
+                              className="font-black text-amber-800 px-1 hover:text-amber-950"
+                            >
+                              -
+                            </button>
+                            <span className="font-bold text-amber-900 w-4 text-center">{item.cantidad}</span>
+                            <button
+                              onClick={() => modificarCantidadCarritoPadre(item.idProducto, 1)}
+                              className="font-black text-amber-800 px-1 hover:text-amber-950"
+                            >
+                              +
+                            </button>
+                          </div>
+
+                          <span className="font-mono font-black text-gray-900 min-w-[55px] text-right">
+                            S/ {item.subtotal.toFixed(2)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Selector de Turno de Entrega */}
+                    <div className="grid grid-cols-2 gap-2 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => setTurnoPedido('RECREO')}
+                        className={`py-2 rounded-xl text-xs font-black border transition-all ${
+                          turnoPedido === 'RECREO'
+                            ? 'bg-amber-500 text-white border-amber-600 shadow-sm'
+                            : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                        }`}
+                      >
+                        ☀️ Para la hora de Recreo
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setTurnoPedido('ALMUERZO')}
+                        className={`py-2 rounded-xl text-xs font-black border transition-all ${
+                          turnoPedido === 'ALMUERZO'
+                            ? 'bg-amber-500 text-white border-amber-600 shadow-sm'
+                            : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                        }`}
+                      >
+                        🍲 Para la hora de Almuerzo
+                      </button>
+                    </div>
+
+                    {/* Nota o indicación especial */}
+                    <input
+                      type="text"
+                      placeholder="Indicación para cafetería (ej: sin mayonesa, jugo caliente...)"
+                      value={notaPedido}
+                      onChange={(e) => setNotaPedido(e.target.value)}
+                      className="w-full bg-white border border-amber-300 rounded-xl px-3 py-2 text-xs text-gray-800 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    />
+
+                    {/* Total y botón confirmar */}
+                    <div className="pt-2 flex items-center justify-between gap-4">
+                      <div>
+                        <span className="text-[10px] text-gray-500 uppercase font-bold block">Total del Pedido</span>
+                        <span className="text-2xl font-black font-mono text-amber-950">
+                          S/ {totalCarritoPadre.toFixed(2)}
+                        </span>
+                      </div>
+
+                      <button
+                        onClick={handleConfirmarPedidoPadre}
+                        disabled={enviandoPedido}
+                        className="flex-1 bg-amber-600 hover:bg-amber-700 text-white font-black py-3 rounded-2xl text-xs sm:text-sm shadow-md hover:shadow-lg transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                      >
+                        {enviandoPedido ? (
+                          <span>Enviando Pedido...</span>
+                        ) : (
+                          <>
+                            <span>✅</span>
+                            <span>Confirmar Pedido (S/ {totalCarritoPadre.toFixed(2)})</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* HISTORIAL TRANSPARENTE: CONSUMOS Y RECARGAS */}
+                <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-sm space-y-4">
+                  <div className="flex items-center justify-between pb-3 border-b border-gray-200">
+                    <h4 className="font-extrabold text-gray-900 text-base flex items-center gap-2">
+                      <span>📜</span>
+                      <span>Historial de Movimientos de Cafetería</span>
+                    </h4>
+
+                    {/* Sub-selector */}
+                    <div className="flex items-center gap-1 bg-gray-100 p-1 rounded-xl text-xs font-bold">
+                      <button
+                        onClick={() => setSubTabMovimientos('consumos')}
+                        className={`px-3 py-1 rounded-lg transition-all ${
+                          subTabMovimientos === 'consumos' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'
+                        }`}
+                      >
+                        🍽️ Consumos
+                      </button>
+                      <button
+                        onClick={() => setSubTabMovimientos('recargas')}
+                        className={`px-3 py-1 rounded-lg transition-all ${
+                          subTabMovimientos === 'recargas' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'
+                        }`}
+                      >
+                        💳 Recargas Yape
+                      </button>
+                      <button
+                        onClick={() => setSubTabMovimientos('pedidos')}
+                        className={`px-3 py-1 rounded-lg transition-all ${
+                          subTabMovimientos === 'pedidos' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'
+                        }`}
+                      >
+                        📋 Pedidos
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Sub-Tab 1: Consumos en Cafetería */}
+                  {subTabMovimientos === 'consumos' && (
+                    <div className="space-y-2.5">
+                      {cafeteriaHistorial && cafeteriaHistorial.ventas && cafeteriaHistorial.ventas.length > 0 ? (
+                        cafeteriaHistorial.ventas.map((v, i) => (
+                          <div key={i} className="p-3 bg-gray-50 rounded-xl border border-gray-200 flex items-center justify-between gap-3 text-xs">
+                            <div className="space-y-0.5">
+                              <div className="font-bold text-gray-900">
+                                {v.items && v.items.length > 0 
+                                  ? v.items.map(it => `${it.cantidad}x ${it.nombre}`).join(', ') 
+                                  : 'Consumo en Cafetería'}
+                              </div>
+                              <div className="text-[11px] text-gray-500">
+                                📅 {v.fecha} {v.hora || ''} · Método: <span className="font-semibold">{v.metodoPago === 'SALDO_ESTUDIANTE' ? 'Billetera Digital' : v.metodoPago}</span>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <span className="font-black font-mono text-sm text-rose-600 block">
+                                - S/ {Number(v.total || 0).toFixed(2)}
+                              </span>
+                              {v.saldoRestante !== undefined && (
+                                <span className="text-[10px] text-gray-400 font-mono">
+                                  Quedó: S/ {Number(v.saldoRestante).toFixed(2)}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="py-8 text-center text-gray-400 text-xs">
+                          Aún no hay consumos registrados en cafetería para este estudiante.
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Sub-Tab 2: Recargas Yape */}
+                  {subTabMovimientos === 'recargas' && (
+                    <div className="space-y-2.5">
+                      {cafeteriaHistorial && cafeteriaHistorial.recargas && cafeteriaHistorial.recargas.length > 0 ? (
+                        cafeteriaHistorial.recargas.map((r, i) => (
+                          <div key={i} className="p-3 bg-gray-50 rounded-xl border border-gray-200 flex items-center justify-between gap-3 text-xs">
+                            <div className="space-y-0.5">
+                              <div className="flex items-center gap-2">
+                                <span className="font-bold text-gray-900">Recarga por Yape</span>
+                                <span className={`text-[10px] font-black px-2 py-0.5 rounded-full border ${
+                                  r.estado === 'APROBADA'
+                                    ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                                    : r.estado === 'PENDIENTE'
+                                    ? 'bg-amber-100 text-amber-800 border-amber-300'
+                                    : 'bg-rose-100 text-rose-800 border-rose-300'
+                                }`}>
+                                  {r.estado}
+                                </span>
+                              </div>
+                              <div className="text-[11px] text-gray-500">
+                                📅 {r.fecha} {r.hora || ''} · Cód. Op: <span className="font-mono font-bold text-gray-700">{r.codigoOperacion || 'N/A'}</span>
+                              </div>
+                              {r.motivoRechazo && (
+                                <div className="text-[11px] text-rose-600 font-semibold mt-1">
+                                  Motivo: {r.motivoRechazo}
+                                </div>
+                              )}
+                            </div>
+                            <div className="text-right">
+                              <span className="font-black font-mono text-sm text-emerald-600">
+                                + S/ {Number(r.monto || 0).toFixed(2)}
+                              </span>
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="py-8 text-center text-gray-400 text-xs">
+                          No se han enviado recargas de Yape aún.
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Sub-Tab 3: Pedidos */}
+                  {subTabMovimientos === 'pedidos' && (
+                    <div className="space-y-2.5">
+                      {cafeteriaHistorial && cafeteriaHistorial.pedidos && cafeteriaHistorial.pedidos.length > 0 ? (
+                        cafeteriaHistorial.pedidos.map((p, i) => (
+                          <div key={i} className="p-3 bg-gray-50 rounded-xl border border-gray-200 flex items-center justify-between gap-3 text-xs">
+                            <div className="space-y-0.5">
+                              <div className="flex items-center gap-2">
+                                <span className="font-bold text-gray-900">
+                                  {p.items ? p.items.map(it => `${it.cantidad}x ${it.nombre}`).join(', ') : 'Pedido de Lonchera'}
+                                </span>
+                                <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-blue-100 text-blue-800">
+                                  {p.turnoEntrega}
+                                </span>
+                              </div>
+                              <div className="text-[11px] text-gray-500">
+                                📅 Fecha de entrega: {p.fechaEntrega} · Estado: <strong className="text-gray-800">{p.estado}</strong>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <span className="font-black font-mono text-sm text-gray-900">
+                                S/ {Number(p.total || 0).toFixed(2)}
+                              </span>
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="py-8 text-center text-gray-400 text-xs">
+                          No has realizado pedidos anticipados aún.
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 
