@@ -421,34 +421,34 @@ const ConsultaPadres = () => {
               </div>
             </div>
 
-            {/* Pestañas de Navegación: Asistencia vs Tareas */}
-            <div className="flex border-b border-gray-200 bg-gray-50/80 px-4 sm:px-6 pt-3 gap-2">
+            {/* Pestañas de Navegación: Asistencia, Tareas, Comunicados, Cafetería */}
+            <div className="flex border-b border-gray-200 bg-gray-50/90 px-2 sm:px-6 pt-2.5 gap-1 sm:gap-2 overflow-x-auto no-scrollbar scroll-smooth">
               <button
                 type="button"
                 onClick={() => setPestanaActiva('asistencia')}
-                className={`pb-3 px-3 sm:px-4 font-bold text-xs sm:text-sm flex items-center gap-1.5 border-b-2 transition-all ${
+                className={`pb-2.5 sm:pb-3 px-2.5 sm:px-4 font-bold text-xs sm:text-sm flex items-center gap-1.5 border-b-2 transition-all whitespace-nowrap shrink-0 ${
                   pestanaActiva === 'asistencia'
                     ? 'border-blue-600 text-blue-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700'
                 }`}
               >
                 <span>📅</span>
-                <span>Asistencia y Salidas</span>
+                <span>Asistencia<span className="hidden sm:inline"> y Salidas</span></span>
               </button>
 
               <button
                 type="button"
                 onClick={() => setPestanaActiva('tareas')}
-                className={`pb-3 px-3 sm:px-4 font-bold text-xs sm:text-sm flex items-center gap-1.5 border-b-2 transition-all ${
+                className={`pb-2.5 sm:pb-3 px-2.5 sm:px-4 font-bold text-xs sm:text-sm flex items-center gap-1.5 border-b-2 transition-all whitespace-nowrap shrink-0 ${
                   pestanaActiva === 'tareas'
                     ? 'border-blue-600 text-blue-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700'
                 }`}
               >
                 <span>📚</span>
-                <span>Tareas Escolares</span>
+                <span>Tareas<span className="hidden sm:inline"> Escolares</span></span>
                 {tareasActivas.length > 0 && (
-                  <span className="rounded-full bg-blue-600 text-white text-[10px] font-bold px-2 py-0.5">
+                  <span className="rounded-full bg-blue-600 text-white text-[10px] font-bold px-1.5 py-0.2">
                     {tareasActivas.length}
                   </span>
                 )}
@@ -457,7 +457,7 @@ const ConsultaPadres = () => {
               <button
                 type="button"
                 onClick={() => setPestanaActiva('comunicados')}
-                className={`pb-3 px-3 sm:px-4 font-bold text-xs sm:text-sm flex items-center gap-1.5 border-b-2 transition-all ${
+                className={`pb-2.5 sm:pb-3 px-2.5 sm:px-4 font-bold text-xs sm:text-sm flex items-center gap-1.5 border-b-2 transition-all whitespace-nowrap shrink-0 ${
                   pestanaActiva === 'comunicados'
                     ? 'border-blue-600 text-blue-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700'
@@ -466,7 +466,7 @@ const ConsultaPadres = () => {
                 <span>📢</span>
                 <span>Comunicados</span>
                 {comunicadosActivos.length > 0 && (
-                  <span className="rounded-full bg-amber-500 text-white text-[10px] font-bold px-2 py-0.5">
+                  <span className="rounded-full bg-amber-500 text-white text-[10px] font-bold px-1.5 py-0.2">
                     {comunicadosActivos.length}
                   </span>
                 )}
@@ -475,16 +475,16 @@ const ConsultaPadres = () => {
               <button
                 type="button"
                 onClick={() => setPestanaActiva('cafeteria')}
-                className={`pb-3 px-3 sm:px-4 font-bold text-xs sm:text-sm flex items-center gap-1.5 border-b-2 transition-all ${
+                className={`pb-2.5 sm:pb-3 px-2.5 sm:px-4 font-bold text-xs sm:text-sm flex items-center gap-1.5 border-b-2 transition-all whitespace-nowrap shrink-0 ${
                   pestanaActiva === 'cafeteria'
                     ? 'border-amber-500 text-amber-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700'
                 }`}
               >
                 <span>🍽️</span>
-                <span>Cafetería y Lonchera</span>
+                <span>Cafetería<span className="hidden sm:inline"> y Lonchera</span></span>
                 {cafeteriaHistorial?.saldo?.saldoActual !== undefined && (
-                  <span className="rounded-full bg-amber-100 text-amber-800 border border-amber-300 text-[10px] font-black px-2 py-0.5">
+                  <span className="rounded-full bg-amber-100 text-amber-800 border border-amber-300 text-[10px] font-black px-1.5 py-0.2">
                     S/ {Number(cafeteriaHistorial.saldo.saldoActual).toFixed(2)}
                   </span>
                 )}
@@ -829,12 +829,12 @@ const ConsultaPadres = () => {
                 )}
 
                 {/* TARJETA HERO: BILLETERA DIGITAL ESCOLAR */}
-                <div className="bg-gradient-to-br from-amber-500 via-orange-500 to-amber-600 rounded-3xl p-6 text-white shadow-xl relative overflow-hidden">
+                <div className="bg-gradient-to-br from-amber-500 via-orange-500 to-amber-600 rounded-3xl p-5 sm:p-6 text-white shadow-xl relative overflow-hidden">
                   <div className="absolute -right-6 -bottom-6 w-36 h-36 bg-white/10 rounded-full blur-2xl"></div>
                   
                   <div className="relative z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div>
-                      <div className="flex items-center gap-2 text-amber-100 text-xs font-black uppercase tracking-wider">
+                      <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 text-amber-100 text-xs font-black uppercase tracking-wider">
                         <span>💳 Billetera Digital Escolar</span>
                         <span>·</span>
                         <span>IEP Millenium</span>
@@ -847,10 +847,10 @@ const ConsultaPadres = () => {
                       </p>
                     </div>
 
-                    <div className="flex flex-col gap-2 sm:items-end">
+                    <div className="flex flex-col gap-2 sm:items-end w-full sm:w-auto">
                       <button
                         onClick={() => setModalRecargaYape(true)}
-                        className="bg-white hover:bg-amber-50 text-amber-900 font-extrabold px-5 py-3 rounded-2xl text-sm shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2"
+                        className="bg-white hover:bg-amber-50 text-amber-900 font-extrabold px-5 py-3 rounded-2xl text-sm shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 w-full sm:w-auto"
                       >
                         <span className="text-lg">📱</span>
                         <span>Recargar con Yape</span>
@@ -858,7 +858,7 @@ const ConsultaPadres = () => {
 
                       <button
                         onClick={() => recargarDatosCafeteria(data.estudiante.dni)}
-                        className="text-white/80 hover:text-white text-xs font-semibold flex items-center gap-1 self-center sm:self-end pt-1"
+                        className="text-white/80 hover:text-white text-xs font-semibold flex items-center justify-center gap-1 self-center sm:self-end pt-1"
                       >
                         <span>🔄</span>
                         <span>Actualizar saldo</span>
