@@ -814,47 +814,97 @@ export default function CafeteriaAdmin() {
                     .filter(p => p.enMenuHoy !== false)
                     .filter(p => categoriaSeleccionada === 'TODAS' || p.categoria === categoriaSeleccionada)
                     .filter(p => !busquedaProducto.trim() || p.nombre.toLowerCase().includes(busquedaProducto.toLowerCase()))
-                    .map(prod => (
-                      <div
-                        key={prod.idProducto}
-                        onClick={() => agregarAlCarrito(prod)}
-                        className="bg-slate-950 border border-slate-800 hover:border-amber-500/60 rounded-xl p-3 flex flex-col justify-between cursor-pointer group transition-all transform hover:-translate-y-0.5 hover:shadow-lg hover:shadow-amber-500/10"
-                      >
-                        {/* Imagen o Placeholder */}
-                        <div className="w-full h-24 rounded-lg bg-slate-900 overflow-hidden mb-2 relative flex items-center justify-center border border-slate-800">
-                          {prod.imagenUrl ? (
-                            <img
-                              src={prod.imagenUrl}
-                              alt={prod.nombre}
-                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                              onError={(e) => { e.target.style.display = 'none'; }}
-                            />
-                          ) : (
-                            <span className="text-3xl opacity-60">🥪</span>
-                          )}
-                          <span className="absolute top-1 right-1 bg-slate-950/80 backdrop-blur text-[10px] text-amber-300 font-bold px-1.5 py-0.5 rounded">
-                            S/ {Number(prod.precio || 0).toFixed(2)}
-                          </span>
-                        </div>
+                    .map(prod => {
+                      const itemEnCarrito = carrito.find(it => it.idProducto === prod.idProducto);
+                      const cantEnTicket = itemEnCarrito ? itemEnCarrito.cantidad : 0;
+                      const seleccionado = cantEnTicket > 0;
 
-                        <div>
-                          <div className="font-bold text-white text-xs line-clamp-1 group-hover:text-amber-400 transition-colors">
-                            {prod.nombre}
-                          </div>
-                          <div className="text-[10px] text-slate-400 truncate mt-0.5">
-                            {prod.categoria}
-                          </div>
-                        </div>
-
-                        <button
-                          type="button"
-                          className="mt-2 w-full bg-slate-800 group-hover:bg-amber-500 group-hover:text-slate-950 text-slate-300 py-1 rounded text-xs font-bold transition-all flex items-center justify-center gap-1"
+                      return (
+                        <div
+                          key={prod.idProducto}
+                          onClick={() => agregarAlCarrito(prod)}
+                          className={`rounded-xl p-3 flex flex-col justify-between cursor-pointer group transition-all transform hover:-translate-y-0.5 relative ${
+                            seleccionado
+                              ? 'bg-amber-500/10 border-2 border-amber-400 shadow-lg shadow-amber-500/20 ring-1 ring-amber-400'
+                              : 'bg-slate-950 border border-slate-800 hover:border-amber-500/60 hover:shadow-lg hover:shadow-amber-500/10'
+                          }`}
                         >
-                          <span>+</span>
-                          <span>Agregar</span>
-                        </button>
-                      </div>
-                    ))}
+                          {/* Badge flotante de cantidad en ticket */}
+                          {seleccionado && (
+                            <div className="absolute -top-2 -right-2 z-20 bg-gradient-to-r from-amber-400 to-amber-500 text-slate-950 text-[11px] font-black px-2 py-0.5 rounded-full shadow-lg border border-amber-200 animate-in zoom-in-75 flex items-center gap-1">
+                              <span>✓</span>
+                              <span>{cantEnTicket}x</span>
+                            </div>
+                          )}
+
+                          {/* Imagen o Placeholder */}
+                          <div className={`w-full h-24 rounded-lg bg-slate-900 overflow-hidden mb-2 relative flex items-center justify-center border ${
+                            seleccionado ? 'border-amber-500/40' : 'border-slate-800'
+                          }`}>
+                            {prod.imagenUrl ? (
+                              <img
+                                src={prod.imagenUrl}
+                                alt={prod.nombre}
+                                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                                onError={(e) => { e.target.style.display = 'none'; }}
+                              />
+                            ) : (
+                              <span className="text-3xl opacity-60">🥪</span>
+                            )}
+                            <span className="absolute bottom-1 right-1 bg-slate-950/85 backdrop-blur text-[10px] text-amber-300 font-black px-1.5 py-0.5 rounded">
+                              S/ {Number(prod.precio || 0).toFixed(2)}
+                            </span>
+                          </div>
+
+                          <div>
+                            <div className={`font-bold text-xs line-clamp-1 transition-colors ${
+                              seleccionado ? 'text-amber-300 font-black' : 'text-white group-hover:text-amber-400'
+                            }`}>
+                              {prod.nombre}
+                            </div>
+                            <div className="text-[10px] text-slate-400 truncate mt-0.5">
+                              {prod.categoria}
+                            </div>
+                          </div>
+
+                          {/* Botón o controles si ya está seleccionado */}
+                          {seleccionado ? (
+                            <div 
+                              className="mt-2 flex items-center justify-between bg-slate-950 border border-amber-500/60 rounded-lg p-0.5" 
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <button
+                                type="button"
+                                onClick={() => modificarCantidadCarrito(prod.idProducto, -1)}
+                                className="w-7 h-6 rounded bg-slate-800 hover:bg-rose-600 text-white font-black text-xs flex items-center justify-center transition-colors"
+                                title="Quitar uno"
+                              >
+                                -
+                              </button>
+                              <span className="text-xs font-mono font-black text-amber-400 px-1">
+                                {cantEnTicket} en ticket
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => agregarAlCarrito(prod)}
+                                className="w-7 h-6 rounded bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs flex items-center justify-center transition-colors shadow-sm"
+                                title="Agregar otro"
+                              >
+                                +
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              className="mt-2 w-full bg-slate-800 group-hover:bg-amber-500 group-hover:text-slate-950 text-slate-300 py-1 rounded text-xs font-bold transition-all flex items-center justify-center gap-1"
+                            >
+                              <span>+</span>
+                              <span>Agregar</span>
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
                 </div>
               </div>
             </div>

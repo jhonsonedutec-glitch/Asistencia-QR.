@@ -913,46 +913,95 @@ const ConsultaPadres = () => {
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                     {menuHoy
                       .filter(p => categoriaMenuPadre === 'TODAS' || p.categoria === categoriaMenuPadre)
-                      .map(prod => (
-                        <div
-                          key={prod.idProducto}
-                          className="border border-gray-200 hover:border-amber-400 rounded-2xl p-3 flex flex-col justify-between transition-all hover:shadow-md bg-white"
-                        >
-                          <div>
-                            {/* Imagen o Placeholder */}
-                            <div className="w-full h-28 bg-gray-100 rounded-xl overflow-hidden mb-2 relative flex items-center justify-center">
-                              {prod.imagenUrl ? (
-                                <img
-                                  src={prod.imagenUrl}
-                                  alt={prod.nombre}
-                                  className="w-full h-full object-cover"
-                                  onError={(e) => { e.target.style.display = 'none'; }}
-                                />
-                              ) : (
-                                <span className="text-3xl opacity-60">🥪</span>
+                      .map(prod => {
+                        const itemEnPedido = carritoPadre.find(it => it.idProducto === prod.idProducto);
+                        const cantEnPedido = itemEnPedido ? itemEnPedido.cantidad : 0;
+                        const seleccionado = cantEnPedido > 0;
+
+                        return (
+                          <div
+                            key={prod.idProducto}
+                            className={`rounded-2xl p-3 flex flex-col justify-between transition-all relative ${
+                              seleccionado
+                                ? 'bg-amber-50/80 border-2 border-amber-500 shadow-md ring-1 ring-amber-400'
+                                : 'bg-white border border-gray-200 hover:border-amber-400 hover:shadow-md'
+                            }`}
+                          >
+                            {/* Badge flotante de cantidad en lonchera */}
+                            {seleccionado && (
+                              <div className="absolute -top-2 -right-2 z-20 bg-gradient-to-r from-amber-500 to-orange-500 text-white text-[11px] font-black px-2.5 py-0.5 rounded-full shadow-md border border-white flex items-center gap-1 animate-in zoom-in-75">
+                                <span>🧺</span>
+                                <span>{cantEnPedido} en lonchera</span>
+                              </div>
+                            )}
+
+                            <div>
+                              {/* Imagen o Placeholder */}
+                              <div className={`w-full h-28 rounded-xl overflow-hidden mb-2 relative flex items-center justify-center ${
+                                seleccionado ? 'bg-amber-100/50' : 'bg-gray-100'
+                              }`}>
+                                {prod.imagenUrl ? (
+                                  <img
+                                    src={prod.imagenUrl}
+                                    alt={prod.nombre}
+                                    className="w-full h-full object-cover"
+                                    onError={(e) => { e.target.style.display = 'none'; }}
+                                  />
+                                ) : (
+                                  <span className="text-3xl opacity-60">🥪</span>
+                                )}
+                                <span className="absolute bottom-1.5 right-1.5 bg-gray-900/80 backdrop-blur text-white text-[10px] font-black px-2 py-0.5 rounded-lg">
+                                  S/ {Number(prod.precio || 0).toFixed(2)}
+                                </span>
+                              </div>
+
+                              <div className={`font-bold text-xs line-clamp-1 ${
+                                seleccionado ? 'text-amber-950 font-black' : 'text-gray-900'
+                              }`}>
+                                {prod.nombre}
+                              </div>
+                              <div className="text-[10px] text-gray-400 truncate">{prod.categoria}</div>
+                              {prod.descripcion && (
+                                <p className="text-[11px] text-gray-600 line-clamp-2 mt-1">{prod.descripcion}</p>
                               )}
-                              <span className="absolute top-1.5 right-1.5 bg-gray-900/80 backdrop-blur text-white text-[10px] font-black px-2 py-0.5 rounded-lg">
-                                S/ {Number(prod.precio || 0).toFixed(2)}
-                              </span>
                             </div>
 
-                            <div className="font-bold text-gray-900 text-xs line-clamp-1">{prod.nombre}</div>
-                            <div className="text-[10px] text-gray-400 truncate">{prod.categoria}</div>
-                            {prod.descripcion && (
-                              <p className="text-[11px] text-gray-600 line-clamp-2 mt-1">{prod.descripcion}</p>
+                            {/* Controles de cantidad o botón agregar */}
+                            {seleccionado ? (
+                              <div className="mt-3 flex items-center justify-between bg-white border border-amber-400 rounded-xl p-1 shadow-sm">
+                                <button
+                                  type="button"
+                                  onClick={() => modificarCantidadCarritoPadre(prod.idProducto, -1)}
+                                  className="w-8 h-7 rounded-lg bg-gray-100 hover:bg-rose-100 text-gray-700 hover:text-rose-700 font-black text-sm flex items-center justify-center transition-colors"
+                                  title="Quitar 1"
+                                >
+                                  -
+                                </button>
+                                <span className="text-xs font-mono font-black text-amber-900 px-2">
+                                  {cantEnPedido} en lonchera
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => agregarAlCarritoPadre(prod)}
+                                  className="w-8 h-7 rounded-lg bg-amber-500 hover:bg-amber-600 text-white font-black text-sm flex items-center justify-center transition-colors shadow-sm"
+                                  title="Agregar otro"
+                                >
+                                  +
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => agregarAlCarritoPadre(prod)}
+                                className="mt-3 w-full bg-amber-50 hover:bg-amber-500 text-amber-800 hover:text-white border border-amber-300 hover:border-amber-500 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5"
+                              >
+                                <span>+</span>
+                                <span>Pedir para Lonchera</span>
+                              </button>
                             )}
                           </div>
-
-                          <button
-                            type="button"
-                            onClick={() => agregarAlCarritoPadre(prod)}
-                            className="mt-3 w-full bg-amber-50 hover:bg-amber-500 text-amber-800 hover:text-white border border-amber-300 hover:border-amber-500 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5"
-                          >
-                            <span>+</span>
-                            <span>Pedir para Lonchera</span>
-                          </button>
-                        </div>
-                      ))}
+                        );
+                      })}
 
                     {menuHoy.length === 0 && (
                       <div className="col-span-full py-8 text-center text-gray-400 text-xs">
@@ -1073,35 +1122,41 @@ const ConsultaPadres = () => {
                 )}
 
                 {/* HISTORIAL TRANSPARENTE: CONSUMOS Y RECARGAS */}
-                <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-sm space-y-4">
-                  <div className="flex items-center justify-between pb-3 border-b border-gray-200">
-                    <h4 className="font-extrabold text-gray-900 text-base flex items-center gap-2">
-                      <span>📜</span>
-                      <span>Historial de Movimientos de Cafetería</span>
-                    </h4>
+                <div className="bg-white rounded-2xl border border-gray-200 p-4 sm:p-5 shadow-sm space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-gray-200">
+                    <div>
+                      <h4 className="font-extrabold text-gray-900 text-sm sm:text-base flex items-center gap-2">
+                        <span>📜</span>
+                        <span>Historial de Movimientos</span>
+                      </h4>
+                      <p className="text-[11px] sm:text-xs text-gray-500">Trazabilidad de recargas, consumos y lonchera</p>
+                    </div>
 
-                    {/* Sub-selector */}
-                    <div className="flex items-center gap-1 bg-gray-100 p-1 rounded-xl text-xs font-bold">
+                    {/* Sub-selector 100% adaptable a móvil */}
+                    <div className="grid grid-cols-3 sm:flex items-center gap-1 bg-gray-100 p-1 rounded-xl text-xs font-bold w-full sm:w-auto">
                       <button
+                        type="button"
                         onClick={() => setSubTabMovimientos('consumos')}
-                        className={`px-3 py-1 rounded-lg transition-all ${
-                          subTabMovimientos === 'consumos' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'
+                        className={`py-1.5 px-2 sm:px-3 rounded-lg transition-all text-center whitespace-nowrap ${
+                          subTabMovimientos === 'consumos' ? 'bg-white text-gray-900 shadow-sm font-black' : 'text-gray-500 hover:text-gray-700'
                         }`}
                       >
                         🍽️ Consumos
                       </button>
                       <button
+                        type="button"
                         onClick={() => setSubTabMovimientos('recargas')}
-                        className={`px-3 py-1 rounded-lg transition-all ${
-                          subTabMovimientos === 'recargas' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'
+                        className={`py-1.5 px-2 sm:px-3 rounded-lg transition-all text-center whitespace-nowrap ${
+                          subTabMovimientos === 'recargas' ? 'bg-white text-gray-900 shadow-sm font-black' : 'text-gray-500 hover:text-gray-700'
                         }`}
                       >
-                        💳 Recargas Yape
+                        💳 Recargas
                       </button>
                       <button
+                        type="button"
                         onClick={() => setSubTabMovimientos('pedidos')}
-                        className={`px-3 py-1 rounded-lg transition-all ${
-                          subTabMovimientos === 'pedidos' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'
+                        className={`py-1.5 px-2 sm:px-3 rounded-lg transition-all text-center whitespace-nowrap ${
+                          subTabMovimientos === 'pedidos' ? 'bg-white text-gray-900 shadow-sm font-black' : 'text-gray-500 hover:text-gray-700'
                         }`}
                       >
                         📋 Pedidos
