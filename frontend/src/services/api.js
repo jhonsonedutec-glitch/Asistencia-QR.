@@ -901,3 +901,15 @@ export const obtenerReporteCafeteria = async (periodo = 'HOY') => {
     return { success: false, message: err.message };
   }
 };
+
+export const eliminarPedidoCafeteria = (idPedido, reembolsar = true) => request(GAS_URL, {
+  method: 'POST',
+  headers: { 'Content-Type': 'text/plain' },
+  body: JSON.stringify({ action: 'cafeteria_eliminar_pedido', idPedido, reembolsar })
+});
+
+export const resetearDatosPruebaCafeteria = (confirmacion = 'RESET') => request(GAS_URL, {
+  method: 'POST',
+  headers: { 'Content-Type': 'text/plain' },
+  body: JSON.stringify({ action: 'cafeteria_resetear_datos_prueba', confirmacion })
+});

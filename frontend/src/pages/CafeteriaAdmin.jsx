@@ -12,6 +12,8 @@ import {
   registrarVentaCaja,
   obtenerPedidosCafeteria,
   cambiarEstadoPedido,
+  eliminarPedidoCafeteria,
+  resetearDatosPruebaCafeteria,
   obtenerReporteCafeteria,
   obtenerEstudiantes
 } from '../services/api';
@@ -118,6 +120,11 @@ export default function CafeteriaAdmin() {
   // Estados de Reportes
   const [periodoReporte, setPeriodoReporte] = useState('HOY');
   const [datosReporte, setDatosReporte] = useState(null);
+
+  // Estados de Reinicio de Pruebas
+  const [modalResetPruebas, setModalResetPruebas] = useState(false);
+  const [textoConfirmacionReset, setTextoConfirmacionReset] = useState('');
+  const [ejecutandoReset, setEjecutandoReset] = useState(false);
 
   // Estados de Saldos y Ajustes
   const [saldosLista, setSaldosLista] = useState([]);
@@ -613,6 +620,63 @@ export default function CafeteriaAdmin() {
       }
     } catch (err) {
       showToast('Error: ' + err.message, 'error');
+    }
+  };
+
+  // Eliminar o anular pedido individual con reembolso de saldo si aplica
+  const handleEliminarPedido = async (ped) => {
+    const id = ped.idPedido || ped.id;
+    const estNom = ped.estudiante || ped.nombres || 'este pedido';
+    const total = Number(ped.total || 0).toFixed(2);
+    const confirma = window.confirm(
+      `¿Deseas anular y eliminar el pedido #${id} de ${estNom} por S/ ${total}?\n\n` +
+      `Si fue pagado con Saldo del Alumno, el monto será reembolsado automáticamente a su saldo.`
+    );
+    if (!confirma) return;
+
+    try {
+      showToast('Eliminando pedido...', 'info');
+      const res = await eliminarPedidoCafeteria(id, true);
+      if (res && res.success) {
+        showToast(res.message || 'Pedido eliminado exitosamente.', 'success');
+        cargarPedidos();
+        cargarDatosBase();
+        if (tabActiva === 'reportes') cargarReporte();
+      } else {
+        showToast(res.message || 'Error al eliminar pedido', 'error');
+      }
+    } catch (err) {
+      showToast('Error: ' + err.message, 'error');
+    }
+  };
+
+  // Resetear todos los datos de prueba a cero
+  const handleConfirmarResetPruebas = async (e) => {
+    if (e) e.preventDefault();
+    if (textoConfirmacionReset.trim().toUpperCase() !== 'RESET') {
+      showToast('Escribe RESET en mayúsculas para confirmar', 'error');
+      return;
+    }
+
+    setEjecutandoReset(true);
+    try {
+      const res = await resetearDatosPruebaCafeteria('RESET');
+      if (res && res.success) {
+        showToast(res.message || '¡Datos de prueba reiniciados a cero!', 'success');
+        setModalResetPruebas(false);
+        setTextoConfirmacionReset('');
+        // Recargar datos en todas las pestañas
+        cargarReporte();
+        cargarPedidos();
+        cargarRecargas();
+        cargarDatosBase();
+      } else {
+        showToast(res.message || 'Error al reiniciar datos de prueba', 'error');
+      }
+    } catch (err) {
+      showToast('Error: ' + err.message, 'error');
+    } finally {
+      setEjecutandoReset(false);
     }
   };
 
@@ -1688,6 +1752,16 @@ export default function CafeteriaAdmin() {
                             <span>✓ Entregado</span>
                           </span>
                         )}
+
+                        {/* Botón para eliminar o anular comanda */}
+                        <button
+                          type="button"
+                          onClick={() => handleEliminarPedido(ped)}
+                          title="Eliminar comanda (reembolsa saldo si fue pagado con billetera)"
+                          className="p-1.5 rounded-lg bg-red-950/40 hover:bg-red-900/60 text-red-400 hover:text-red-200 border border-red-800/40 transition-all text-xs flex items-center justify-center cursor-pointer ml-1"
+                        >
+                          <span>🗑️</span>
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -2132,13 +2206,27 @@ export default function CafeteriaAdmin() {
                 ))}
               </div>
 
-              <button
-                onClick={cargarReporte}
-                className="bg-slate-800 hover:bg-slate-700 text-white px-3.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 self-start sm:self-auto"
-              >
-                <span>🔄</span>
-                <span>Actualizar Datos</span>
-              </button>
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  onClick={cargarReporte}
+                  className="bg-slate-800 hover:bg-slate-700 text-white px-3.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 self-start sm:self-auto cursor-pointer"
+                >
+                  <span>🔄</span>
+                  <span>Actualizar Datos</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setTextoConfirmacionReset('');
+                    setModalResetPruebas(true);
+                  }}
+                  className="bg-red-950/60 hover:bg-red-900 border border-red-800/80 text-red-200 hover:text-white px-3.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 self-start sm:self-auto transition-all cursor-pointer shadow-sm"
+                  title="Reiniciar a cero todos los pedidos, ventas y recargas de prueba"
+                >
+                  <span>🧹</span>
+                  <span>Reiniciar Datos de Prueba</span>
+                </button>
+              </div>
             </div>
 
             {/* Tarjetas KPI */}
@@ -2598,6 +2686,90 @@ export default function CafeteriaAdmin() {
             >
               ✓ Listo / Siguiente Venta
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* MODAL: REINICIAR DATOS DE PRUEBA A CERO                   */}
+      {/* ======================================================== */}
+      {modalResetPruebas && (
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-slate-900 border-2 border-red-600/70 rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-2xl bg-red-500/20 border border-red-500/40 flex items-center justify-center text-2xl flex-shrink-0">
+                🧹
+              </div>
+              <div>
+                <h3 className="font-black text-white text-base">Reiniciar Datos de Prueba a Cero</h3>
+                <p className="text-xs text-red-400 font-medium">Limpieza completa de comandas, ventas y recargas</p>
+              </div>
+            </div>
+
+            <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 text-xs text-slate-300 space-y-2 leading-relaxed">
+              <p className="font-bold text-white">Esta acción realizará la siguiente limpieza:</p>
+              <ul className="list-disc pl-4 space-y-1 text-slate-400">
+                <li>Eliminará todos los pedidos registrados en <strong className="text-amber-400">Cafeteria_Pedidos</strong>.</li>
+                <li>Eliminará el historial de ventas en <strong className="text-amber-400">Cafeteria_Ventas</strong> (métricas a S/ 0.00).</li>
+                <li>Limpiará los registros de recargas en <strong className="text-amber-400">Cafeteria_Recargas</strong>.</li>
+                <li>Reiniciará los saldos de los estudiantes a <strong className="text-emerald-400">S/ 0.00</strong> en <strong className="text-amber-400">Cafeteria_Saldos</strong>.</li>
+              </ul>
+              <div className="mt-2 p-2.5 rounded-xl bg-emerald-950/40 border border-emerald-800/40 text-emerald-300 text-[11px] flex items-center gap-2">
+                <span>🛡️</span>
+                <span><strong>Seguro:</strong> Tu menú, categorías y precios (<strong className="text-emerald-200">Cafeteria_Productos</strong>) se mantendrán intactos.</span>
+              </div>
+            </div>
+
+            <form onSubmit={handleConfirmarResetPruebas} className="space-y-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-400 mb-1">
+                  Para confirmar, escribe <span className="text-red-400 font-mono font-black">RESET</span> en mayúsculas:
+                </label>
+                <input
+                  type="text"
+                  value={textoConfirmacionReset}
+                  onChange={e => setTextoConfirmacionReset(e.target.value)}
+                  placeholder="RESET"
+                  className="w-full bg-slate-950 border border-red-800/70 focus:border-red-500 rounded-xl px-3 py-2 text-white font-mono font-bold text-center uppercase tracking-widest outline-none text-sm"
+                  autoFocus
+                />
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setModalResetPruebas(false);
+                    setTextoConfirmacionReset('');
+                  }}
+                  className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-2.5 rounded-xl text-xs transition-all cursor-pointer"
+                  disabled={ejecutandoReset}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={textoConfirmacionReset.trim().toUpperCase() !== 'RESET' || ejecutandoReset}
+                  className={`flex-1 font-black py-2.5 rounded-xl text-xs transition-all flex items-center justify-center gap-1.5 shadow-lg ${
+                    textoConfirmacionReset.trim().toUpperCase() === 'RESET' && !ejecutandoReset
+                      ? 'bg-red-600 hover:bg-red-500 text-white cursor-pointer shadow-red-600/30'
+                      : 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700'
+                  }`}
+                >
+                  {ejecutandoReset ? (
+                    <>
+                      <span className="animate-spin">⏳</span>
+                      <span>Limpiando...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>🧹</span>
+                      <span>Confirmar y Reiniciar</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

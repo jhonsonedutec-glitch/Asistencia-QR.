@@ -268,6 +268,14 @@ function doPost(e) {
       return jsonResponse(cambiarEstadoPedido(data.idPedido, data.nuevoEstado));
     }
 
+    if (action === 'cafeteria_eliminar_pedido') {
+      return jsonResponse(eliminarPedidoCafeteria(data.idPedido, data.reembolsar));
+    }
+
+    if (action === 'cafeteria_resetear_datos_prueba') {
+      return jsonResponse(resetearDatosPruebaCafeteria(data.confirmacion));
+    }
+
     if (action !== 'registrar') {
       return jsonResponse({ success: false, message: 'Acción no válida para POST.' });
     }
@@ -2690,6 +2698,103 @@ function cambiarEstadoPedido(idPedido, nuevoEstado) {
     }
   }
   return { success: false, message: 'Pedido no encontrado.' };
+}
+
+function eliminarPedidoCafeteria(idPedido, reembolsar) {
+  asegurarHojasCafeteria();
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const hojaP = ss.getSheetByName(HOJA_CAFETERIA_PEDIDOS);
+  const ultP = hojaP ? hojaP.getLastRow() : 0;
+  if (ultP <= 1) return { success: false, message: 'No hay pedidos registrados.' };
+
+  const idBuscado = String(idPedido || '').trim().toLowerCase();
+  const datosP = hojaP.getRange(2, 1, ultP - 1, 12).getValues();
+
+  for (let i = 0; i < datosP.length; i++) {
+    const idFila = String(datosP[i][0] || '').trim().toLowerCase();
+    if (idFila === idBuscado) {
+      const filaEliminar = i + 2;
+      const dni = String(datosP[i][3] || '').trim();
+      const total = parseFloat(datosP[i][7]) || 0;
+      const metodoPago = String(datosP[i][10] || '').trim().toUpperCase();
+
+      // 1. Reembolsar saldo al estudiante si pagó con saldo
+      if (reembolsar !== false && total > 0 && dni && (metodoPago.includes('SALDO') || metodoPago.includes('BILLETERA'))) {
+        try {
+          actualizarSaldoEstudiante(dni, total, false, false);
+        } catch (eReemb) {}
+      }
+
+      // 2. Eliminar fila en Hoja de Pedidos
+      hojaP.deleteRow(filaEliminar);
+
+      // 3. Eliminar de Hoja de Ventas si existía para que no compute en métricas
+      try {
+        const hojaV = ss.getSheetByName(HOJA_CAFETERIA_VENTAS);
+        if (hojaV) {
+          const ultV = hojaV.getLastRow();
+          if (ultV > 1) {
+            const idsV = hojaV.getRange(2, 1, ultV - 1, 1).getValues();
+            for (let v = 0; v < idsV.length; v++) {
+              if (String(idsV[v][0]).trim().toLowerCase() === idBuscado) {
+                hojaV.deleteRow(v + 2);
+                break;
+              }
+            }
+          }
+        }
+      } catch (eVentas) {}
+
+      SpreadsheetApp.flush();
+      return { 
+        success: true, 
+        message: 'Pedido eliminado exitosamente.' + (total > 0 ? ` Se devolvió S/ ${total.toFixed(2)} al saldo del alumno.` : '') 
+      };
+    }
+  }
+
+  return { success: false, message: 'Pedido no encontrado con ID: ' + idPedido };
+}
+
+function resetearDatosPruebaCafeteria(confirmacion) {
+  if (String(confirmacion || '').trim().toUpperCase() !== 'RESET') {
+    return { success: false, message: 'Debe escribir RESET para confirmar el reinicio de datos de prueba.' };
+  }
+
+  asegurarHojasCafeteria();
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+
+  // 1. Limpiar Hoja de Pedidos (Conservando fila 1 encabezados)
+  const hojaP = ss.getSheetByName(HOJA_CAFETERIA_PEDIDOS);
+  if (hojaP && hojaP.getLastRow() > 1) {
+    hojaP.getRange(2, 1, hojaP.getLastRow() - 1, hojaP.getLastColumn()).clearContent();
+  }
+
+  // 2. Limpiar Hoja de Ventas (Conservando fila 1 encabezados)
+  const hojaV = ss.getSheetByName(HOJA_CAFETERIA_VENTAS);
+  if (hojaV && hojaV.getLastRow() > 1) {
+    hojaV.getRange(2, 1, hojaV.getLastRow() - 1, hojaV.getLastColumn()).clearContent();
+  }
+
+  // 3. Limpiar Hoja de Recargas (Conservando fila 1 encabezados)
+  const hojaR = ss.getSheetByName(HOJA_CAFETERIA_RECARGAS);
+  if (hojaR && hojaR.getLastRow() > 1) {
+    hojaR.getRange(2, 1, hojaR.getLastRow() - 1, hojaR.getLastColumn()).clearContent();
+  }
+
+  // 4. Reiniciar Saldos a 0 en Hoja de Saldos (Columnas 5, 6 y 7)
+  const hojaS = ss.getSheetByName(HOJA_CAFETERIA_SALDOS);
+  if (hojaS && hojaS.getLastRow() > 1) {
+    for (let f = 2; f <= hojaS.getLastRow(); f++) {
+      hojaS.getRange(f, 5, 1, 3).setValues([[0, 0, 0]]);
+    }
+  }
+
+  SpreadsheetApp.flush();
+  return { 
+    success: true, 
+    message: '¡Datos de prueba reiniciados a cero exitosamente! Todos los pedidos, ventas y recargas se limpiaron. El catálogo de productos y precios se mantiene intacto.' 
+  };
 }
 
 // ------------------------------------------------------------
