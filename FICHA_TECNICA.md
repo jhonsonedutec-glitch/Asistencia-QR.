@@ -218,6 +218,7 @@ Almacena cada transacción completada en el POS o por comanda entregada, con el 
   * Muestra tarjeta informativa con los platos solicitados, turno de recreo/almuerzo e indicación de que ya fueron pagados previamente.
   * Habilita botón de entrega directa `[ ✅ Entregar Lonchera ]` tanto en la cabecera como en el botón principal del ticket de venta, agilizando la atención a 1 solo clic sin recargos.
   * Incorporación de lector QR y buscador por DNI/nombre en la pantalla de **Comandas de Cocina** para despacho directo desde mostrador o cocina.
+  * **Hotfix de Estabilidad:** Inclusión de `normalizarFechaSafe` con fallback resiliente en el selector de alumnos de caja, eliminando el error de consola `ReferenceError` y asegurando renderizado continuo.
 
 ### [v2.5.0] - 15/11/2026
 * **Módulo Cafetería:** Se implementó la anulación de pedidos con botón de papelera `[ 🗑️ ]` en la vista de comandas, con reembolso automático a la billetera digital y descarte en la hoja de ventas.
