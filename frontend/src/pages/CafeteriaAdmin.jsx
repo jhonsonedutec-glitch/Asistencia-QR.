@@ -15,7 +15,8 @@ import {
   eliminarPedidoCafeteria,
   resetearDatosPruebaCafeteria,
   obtenerReporteCafeteria,
-  obtenerEstudiantes
+  obtenerEstudiantes,
+  normalizarFecha
 } from '../services/api';
 import QRScanner from '../components/QRScanner';
 
@@ -52,6 +53,25 @@ const getFechaHoyISO = () => {
   const m = String(hoy.getMonth() + 1).padStart(2, '0');
   const d = String(hoy.getDate()).padStart(2, '0');
   return `${y}-${m}-${d}`;
+};
+
+const normalizarFechaSafe = (str) => {
+  if (!str) return '';
+  try {
+    if (typeof normalizarFecha === 'function') return normalizarFecha(str);
+  } catch (e) {}
+  const s = String(str).replace(/['"]/g, '').trim();
+  if (s.includes('/')) {
+    const parts = s.split('/');
+    if (parts.length === 3) return `${parts[0].padStart(2, '0')}/${parts[1].padStart(2, '0')}/${parts[2]}`;
+  }
+  if (s.includes('-')) {
+    const parts = s.split('-');
+    if (parts.length === 3 && parts[0].length === 4) {
+      return `${parts[2].padStart(2, '0')}/${parts[1].padStart(2, '0')}/${parts[0]}`;
+    }
+  }
+  return s;
 };
 
 const limpiarHora = (h) => {
@@ -365,7 +385,7 @@ export default function CafeteriaAdmin() {
     if (!dniEst) return [];
 
     const hoyISO = getFechaHoyISO();
-    const hoyNorm = normalizarFecha(hoyISO);
+    const hoyNorm = normalizarFechaSafe(hoyISO);
 
     return pedidos.filter(p => {
       const dniP = String(p.dni || '').trim();
@@ -376,7 +396,7 @@ export default function CafeteriaAdmin() {
 
       const fEnt = p.fechaEntregaISO || p.fechaEntrega || p.fechaRegistro || p.fecha;
       if (fEnt) {
-        const fEntNorm = normalizarFecha(fEnt);
+        const fEntNorm = normalizarFechaSafe(fEnt);
         const fEntISO = String(fEnt).trim();
         return fEntNorm === hoyNorm || fEntISO.includes(hoyISO) || fEntNorm === '';
       }
@@ -391,7 +411,7 @@ export default function CafeteriaAdmin() {
     if (!dniEst) return [];
 
     const hoyISO = getFechaHoyISO();
-    const hoyNorm = normalizarFecha(hoyISO);
+    const hoyNorm = normalizarFechaSafe(hoyISO);
 
     return pedidos.filter(p => {
       const dniP = String(p.dni || '').trim();
@@ -402,7 +422,7 @@ export default function CafeteriaAdmin() {
 
       const fEnt = p.fechaEntregaISO || p.fechaEntrega || p.fechaRegistro || p.fecha;
       if (fEnt) {
-        const fEntNorm = normalizarFecha(fEnt);
+        const fEntNorm = normalizarFechaSafe(fEnt);
         const fEntISO = String(fEnt).trim();
         return fEntNorm === hoyNorm || fEntISO.includes(hoyISO);
       }
