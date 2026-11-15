@@ -92,6 +92,8 @@ export default function CafeteriaAdmin() {
   const [atendidoPor, setAtendidoPor] = useState('Caja 1');
   const [mostrarEscanerPOS, setMostrarEscanerPOS] = useState(false);
   const [procesandoVenta, setProcesandoVenta] = useState(false);
+  const [montoEfectivoRecibido, setMontoEfectivoRecibido] = useState('');
+  const [modalVueltoExitoso, setModalVueltoExitoso] = useState(null); // null | { total, recibido, vuelto, idVenta }
 
   // Estados de Pedidos
   const [pedidos, setPedidos] = useState([]);
@@ -431,24 +433,44 @@ export default function CafeteriaAdmin() {
     return Number(carrito.reduce((acc, it) => acc + (it.subtotal || 0), 0).toFixed(2));
   }, [carrito]);
 
+  // Cálculos para pago en Efectivo
+  const efectivoNum = parseFloat(montoEfectivoRecibido) || 0;
+  const vueltoEfectivo = useMemo(() => {
+    if (metodoPago !== 'EFECTIVO' || !montoEfectivoRecibido) return 0;
+    return Number(Math.max(0, efectivoNum - totalCarrito).toFixed(2));
+  }, [metodoPago, montoEfectivoRecibido, efectivoNum, totalCarrito]);
+
+  const dineroInsuficiente = metodoPago === 'EFECTIVO' && montoEfectivoRecibido !== '' && efectivoNum < totalCarrito;
+  const faltanteEfectivo = dineroInsuficiente ? Number((totalCarrito - efectivoNum).toFixed(2)) : 0;
+
   // Ejecutar Cobro en Caja
   const handleCobrarVenta = async () => {
-    if (!estudianteSeleccionado) {
-      playSound('error');
-      showToast('Selecciona o escanea primero el carnet del estudiante.', 'error');
-      return;
-    }
     if (carrito.length === 0) {
       playSound('error');
       showToast('El ticket de venta está vacío.', 'error');
       return;
     }
 
+    // Validación de cobro con Saldo de Billetera
     if (metodoPago === 'SALDO_ESTUDIANTE') {
+      if (!estudianteSeleccionado) {
+        playSound('error');
+        showToast('Para cobrar con saldo de billetera, selecciona o escanea primero el carnet del estudiante.', 'error');
+        return;
+      }
       const saldoDisponible = estudianteSeleccionado.saldoActual || 0;
       if (saldoDisponible < totalCarrito) {
         playSound('error');
         showToast(`Saldo insuficiente. Saldo disponible: S/ ${saldoDisponible.toFixed(2)} - Total: S/ ${totalCarrito.toFixed(2)}`, 'error');
+        return;
+      }
+    }
+
+    // Validación de cobro en Efectivo
+    if (metodoPago === 'EFECTIVO') {
+      if (montoEfectivoRecibido !== '' && efectivoNum < totalCarrito) {
+        playSound('error');
+        showToast(`El dinero entregado (S/ ${efectivoNum.toFixed(2)}) no cubre el total (S/ ${totalCarrito.toFixed(2)}). Faltan S/ ${faltanteEfectivo.toFixed(2)}.`, 'error');
         return;
       }
     }
@@ -463,36 +485,57 @@ export default function CafeteriaAdmin() {
         subtotal: it.subtotal
       }));
 
+      const efectivoPagaCon = efectivoNum > 0 ? efectivoNum : totalCarrito;
+      const vueltoCalculado = Number(Math.max(0, efectivoPagaCon - totalCarrito).toFixed(2));
+
       const res = await registrarVentaCaja({
-        dni: estudianteSeleccionado.dni,
+        dni: estudianteSeleccionado ? estudianteSeleccionado.dni : '',
+        nombre: estudianteSeleccionado ? (estudianteSeleccionado.nombres || estudianteSeleccionado.nombre) : 'Venta Mostrador (Efectivo)',
+        grado: estudianteSeleccionado ? (estudianteSeleccionado.grado || '') : '',
         items: itemsPayload,
         total: totalCarrito,
-        metodoPago,
+        metodoPago: metodoPago === 'EFECTIVO' ? 'Efectivo' : (metodoPago === 'YAPE_DIRECTO' ? 'Yape' : 'Saldo Billetera'),
         atendidoPor,
-        observaciones: 'Venta presencial en cafetería'
+        observaciones: metodoPago === 'EFECTIVO'
+          ? `Pago en efectivo. Entregado: S/ ${efectivoPagaCon.toFixed(2)}, Vuelto: S/ ${vueltoCalculado.toFixed(2)}`
+          : 'Venta presencial en cafetería'
       });
 
       if (res && res.success) {
         playSound('success');
-        showToast(`¡Venta realizada con éxito! Ticket: ${res.idVenta || ''}`);
+
+        // Si fue pago en efectivo y se ingresó un billete con vuelto o monto manual, abrir modal de vuelto
+        if (metodoPago === 'EFECTIVO' && (vueltoCalculado > 0 || montoEfectivoRecibido !== '')) {
+          setModalVueltoExitoso({
+            total: totalCarrito,
+            recibido: efectivoPagaCon,
+            vuelto: vueltoCalculado,
+            idVenta: res.idVenta || ''
+          });
+        } else {
+          showToast(`¡Venta registrada con éxito! Ticket: ${res.idVenta || ''}`);
+        }
         
-        // Actualizar saldo del estudiante localmente
-        const nuevoSaldo = Number(res.nuevoSaldo !== undefined ? res.nuevoSaldo : (estudianteSeleccionado.saldoActual - (metodoPago === 'SALDO_ESTUDIANTE' ? totalCarrito : 0)));
-        setEstudianteSeleccionado(prev => ({
-          ...prev,
-          saldoActual: nuevoSaldo
-        }));
-
-        setSaldosMap(prev => ({
-          ...prev,
-          [estudianteSeleccionado.dni]: {
-            ...prev[estudianteSeleccionado.dni],
+        // Si fue con saldo, actualizar saldo local del estudiante
+        if (estudianteSeleccionado && metodoPago === 'SALDO_ESTUDIANTE') {
+          const nuevoSaldo = Number(res.nuevoSaldo !== undefined ? res.nuevoSaldo : (estudianteSeleccionado.saldoActual - totalCarrito));
+          setEstudianteSeleccionado(prev => ({
+            ...prev,
             saldoActual: nuevoSaldo
-          }
-        }));
+          }));
 
-        // Limpiar ticket
+          setSaldosMap(prev => ({
+            ...prev,
+            [estudianteSeleccionado.dni]: {
+              ...prev[estudianteSeleccionado.dni],
+              saldoActual: nuevoSaldo
+            }
+          }));
+        }
+
+        // Limpiar ticket y efectivo recibido
         setCarrito([]);
+        setMontoEfectivoRecibido('');
       } else {
         playSound('error');
         showToast(res.message || 'Error al procesar la venta.', 'error');
@@ -1234,9 +1277,9 @@ export default function CafeteriaAdmin() {
                       <button
                         type="button"
                         onClick={() => setMetodoPago('SALDO_ESTUDIANTE')}
-                        className={`py-2 px-1 rounded-xl text-center text-xs font-bold border transition-all ${
+                        className={`py-2 px-1 rounded-xl text-center text-xs font-bold border transition-all cursor-pointer ${
                           metodoPago === 'SALDO_ESTUDIANTE'
-                            ? 'bg-amber-500/20 border-amber-500 text-amber-300'
+                            ? 'bg-amber-500/20 border-amber-500 text-amber-300 ring-1 ring-amber-400'
                             : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white'
                         }`}
                       >
@@ -1247,9 +1290,9 @@ export default function CafeteriaAdmin() {
                       <button
                         type="button"
                         onClick={() => setMetodoPago('EFECTIVO')}
-                        className={`py-2 px-1 rounded-xl text-center text-xs font-bold border transition-all ${
+                        className={`py-2 px-1 rounded-xl text-center text-xs font-bold border transition-all cursor-pointer ${
                           metodoPago === 'EFECTIVO'
-                            ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300'
+                            ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300 ring-1 ring-emerald-400'
                             : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white'
                         }`}
                       >
@@ -1260,9 +1303,9 @@ export default function CafeteriaAdmin() {
                       <button
                         type="button"
                         onClick={() => setMetodoPago('YAPE_DIRECTO')}
-                        className={`py-2 px-1 rounded-xl text-center text-xs font-bold border transition-all ${
+                        className={`py-2 px-1 rounded-xl text-center text-xs font-bold border transition-all cursor-pointer ${
                           metodoPago === 'YAPE_DIRECTO'
-                            ? 'bg-purple-500/20 border-purple-500 text-purple-300'
+                            ? 'bg-purple-500/20 border-purple-500 text-purple-300 ring-1 ring-purple-400'
                             : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white'
                         }`}
                       >
@@ -1272,18 +1315,172 @@ export default function CafeteriaAdmin() {
                     </div>
                   </div>
 
+                  {/* =================================================== */}
+                  {/* DETALLES DINÁMICOS SEGÚN MÉTODO DE PAGO             */}
+                  {/* =================================================== */}
+
+                  {/* 1. MÓDULO ESPECIAL: PAGO EN EFECTIVO Y VUELTO */}
+                  {metodoPago === 'EFECTIVO' && (
+                    <div className="bg-slate-950 p-3 rounded-xl border border-emerald-500/30 space-y-2.5 animate-in fade-in duration-200">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-extrabold text-emerald-400 flex items-center gap-1.5">
+                          <span>💵</span>
+                          <span>Paga con (Efectivo):</span>
+                        </span>
+                        {efectivoNum >= totalCarrito && montoEfectivoRecibido !== '' && (
+                          <span className="text-[11px] font-mono font-black text-emerald-300 bg-emerald-500/10 px-2 py-0.5 rounded-lg border border-emerald-500/30">
+                            Vuelto: S/ {vueltoEfectivo.toFixed(2)}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Input de dinero entregado por el cliente */}
+                      <div className="relative">
+                        <span className="absolute left-3 top-2 text-slate-400 font-mono font-bold text-sm">S/</span>
+                        <input
+                          type="number"
+                          step="0.10"
+                          min="0"
+                          placeholder={totalCarrito > 0 ? totalCarrito.toFixed(2) : '0.00'}
+                          value={montoEfectivoRecibido}
+                          onChange={(e) => setMontoEfectivoRecibido(e.target.value)}
+                          className="w-full bg-slate-900 border border-slate-700 focus:border-emerald-500 rounded-xl pl-8 pr-16 py-2 text-sm font-mono font-bold text-white focus:outline-none"
+                        />
+                        {montoEfectivoRecibido !== '' && (
+                          <button
+                            type="button"
+                            onClick={() => setMontoEfectivoRecibido('')}
+                            className="absolute right-2 top-2 text-xs text-slate-400 hover:text-white px-1.5 py-0.5 rounded bg-slate-800"
+                            title="Limpiar monto"
+                          >
+                            ✕
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Botones de billetes/monedas rápidas */}
+                      <div className="flex flex-wrap gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setMontoEfectivoRecibido(totalCarrito.toFixed(2))}
+                          className="px-2.5 py-1 bg-slate-900 hover:bg-emerald-600 hover:text-white text-[11px] font-bold text-emerald-300 rounded-lg transition-colors border border-emerald-500/30 cursor-pointer"
+                        >
+                          Exacto (S/ {totalCarrito.toFixed(2)})
+                        </button>
+                        {[5, 10, 20, 50, 100]
+                          .filter(m => m >= totalCarrito)
+                          .slice(0, 4)
+                          .map(m => (
+                            <button
+                              key={m}
+                              type="button"
+                              onClick={() => setMontoEfectivoRecibido(m.toFixed(2))}
+                              className="px-2.5 py-1 bg-slate-900 hover:bg-emerald-600 hover:text-white text-[11px] font-mono font-bold text-slate-300 rounded-lg transition-colors border border-slate-700 cursor-pointer"
+                            >
+                              S/ {m}
+                            </button>
+                          ))}
+                      </div>
+
+                      {/* Tarjeta de Vuelto o Advertencia de faltante */}
+                      {dineroInsuficiente ? (
+                        <div className="bg-rose-500/10 border border-rose-500/30 rounded-lg p-2.5 text-center text-xs text-rose-300 font-bold flex items-center justify-center gap-1.5 animate-pulse">
+                          <span>⚠️</span>
+                          <span>Monto insuficiente. Faltan S/ {faltanteEfectivo.toFixed(2)}</span>
+                        </div>
+                      ) : montoEfectivoRecibido !== '' && efectivoNum >= totalCarrito ? (
+                        <div className="bg-gradient-to-r from-emerald-950/60 to-slate-950 border border-emerald-500/40 rounded-xl p-2.5 flex items-center justify-between shadow-inner">
+                          <div>
+                            <div className="text-[11px] font-extrabold text-emerald-300 uppercase tracking-wider">Vuelto a entregar:</div>
+                            <div className="text-[10px] text-slate-400">Paga con S/ {efectivoNum.toFixed(2)} - Total S/ {totalCarrito.toFixed(2)}</div>
+                          </div>
+                          <div className="text-2xl font-black font-mono text-emerald-400">
+                            S/ {vueltoEfectivo.toFixed(2)}
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {/* Indicador de cliente */}
+                      <div className="text-[10px] text-slate-400 text-center pt-0.5">
+                        {estudianteSeleccionado ? (
+                          <span>Venta asociada a: <strong className="text-white">{estudianteSeleccionado.nombres || estudianteSeleccionado.nombre}</strong> (no descuenta saldo)</span>
+                        ) : (
+                          <span>Venta a mostrador / Público general (no requiere escanear carnet)</span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 2. MÓDULO ESPECIAL: YAPE EN CAJA */}
+                  {metodoPago === 'YAPE_DIRECTO' && (
+                    <div className="bg-purple-950/40 p-3 rounded-xl border border-purple-500/30 flex items-center justify-between gap-2 animate-in fade-in">
+                      <div className="text-xs text-purple-200">
+                        <div className="font-bold flex items-center gap-1">
+                          <span>📱</span>
+                          <span>Cobro por Yape en Caja</span>
+                        </div>
+                        <div className="text-[10px] text-purple-300/70 mt-0.5">
+                          {estudianteSeleccionado 
+                            ? `Cliente: ${estudianteSeleccionado.nombres || estudianteSeleccionado.nombre}`
+                            : 'Muestra el QR oficial para que el cliente escanee y transfiera.'}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setMostrarModalQRYape(true)}
+                        className="px-2.5 py-1.5 bg-purple-600 hover:bg-purple-500 text-white rounded-lg text-xs font-bold whitespace-nowrap shadow cursor-pointer transition-colors"
+                      >
+                        Ver QR Yape
+                      </button>
+                    </div>
+                  )}
+
+                  {/* 3. MÓDULO: SALDO DE ALUMNO */}
+                  {metodoPago === 'SALDO_ESTUDIANTE' && (
+                    <div className="text-[11px] text-slate-400 bg-slate-950 p-2.5 rounded-xl border border-slate-800">
+                      {estudianteSeleccionado ? (
+                        <div className="flex items-center justify-between">
+                          <span>Saldo disponible del alumno:</span>
+                          <span className={`font-mono font-bold ${estudianteSeleccionado.saldoActual >= totalCarrito ? 'text-emerald-400' : 'text-rose-400'}`}>
+                            S/ {Number(estudianteSeleccionado.saldoActual || 0).toFixed(2)}
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="text-amber-400/90 text-center">
+                          ⚠️ Escanea el carnet o busca al alumno para descontar de su billetera digital.
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   {/* Botón de Cobro Final */}
                   <button
                     onClick={handleCobrarVenta}
-                    disabled={procesandoVenta || carrito.length === 0}
-                    className="w-full bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black py-3 rounded-xl shadow-lg shadow-amber-500/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all text-sm"
+                    disabled={procesandoVenta || carrito.length === 0 || dineroInsuficiente}
+                    className={`w-full font-black py-3 rounded-xl shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all text-sm cursor-pointer ${
+                      metodoPago === 'EFECTIVO'
+                        ? 'bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-slate-950 shadow-emerald-500/20'
+                        : metodoPago === 'YAPE_DIRECTO'
+                        ? 'bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-400 hover:to-purple-500 text-white shadow-purple-500/20'
+                        : 'bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 shadow-amber-500/20'
+                    }`}
                   >
                     {procesandoVenta ? (
                       <span className="animate-pulse">Procesando Venta...</span>
+                    ) : dineroInsuficiente ? (
+                      <span>⚠️ Faltan S/ {faltanteEfectivo.toFixed(2)}</span>
                     ) : (
                       <>
-                        <span>⚡</span>
-                        <span>Cobrar S/ {totalCarrito.toFixed(2)}</span>
+                        <span>{metodoPago === 'EFECTIVO' ? '💵' : metodoPago === 'YAPE_DIRECTO' ? '📱' : '⚡'}</span>
+                        <span>
+                          {metodoPago === 'EFECTIVO'
+                            ? vueltoEfectivo > 0
+                              ? `Cobrar Efectivo (Vuelto: S/ ${vueltoEfectivo.toFixed(2)})`
+                              : `Cobrar S/ ${totalCarrito.toFixed(2)} en Efectivo`
+                            : metodoPago === 'YAPE_DIRECTO'
+                            ? `Cobrar S/ ${totalCarrito.toFixed(2)} por Yape`
+                            : `Cobrar con Saldo Alumno (S/ ${totalCarrito.toFixed(2)})`}
+                        </span>
                       </>
                     )}
                   </button>
@@ -2361,6 +2558,46 @@ export default function CafeteriaAdmin() {
                 Cerrar
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* MODAL: VUELTO EXITOSO EN EFECTIVO                         */}
+      {/* ======================================================== */}
+      {modalVueltoExitoso && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-slate-900 border-2 border-emerald-500/50 rounded-3xl max-w-sm w-full p-6 text-center shadow-2xl space-y-4">
+            <div className="w-16 h-16 rounded-full bg-emerald-500/20 border-2 border-emerald-400 flex items-center justify-center text-3xl mx-auto">
+              💵
+            </div>
+            <div>
+              <h3 className="font-black text-white text-lg">¡Venta en Efectivo Exitosa!</h3>
+              <p className="text-xs text-slate-400 mt-1">Ticket: {modalVueltoExitoso.idVenta}</p>
+            </div>
+            <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-2">
+              <div className="flex justify-between text-xs text-slate-400">
+                <span>Total a Cobrar:</span>
+                <span className="font-mono font-bold text-white">S/ {modalVueltoExitoso.total.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between text-xs text-slate-400">
+                <span>Efectivo Recibido:</span>
+                <span className="font-mono font-bold text-emerald-400">S/ {modalVueltoExitoso.recibido.toFixed(2)}</span>
+              </div>
+              <div className="border-t border-slate-800 pt-2 flex justify-between items-center">
+                <span className="text-xs font-black text-emerald-300 uppercase tracking-wider">Vuelto a Entregar:</span>
+                <span className="text-2xl font-black font-mono text-emerald-400">
+                  S/ {modalVueltoExitoso.vuelto.toFixed(2)}
+                </span>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setModalVueltoExitoso(null)}
+              className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black py-3 rounded-xl shadow-lg shadow-emerald-500/20 transition-all text-sm cursor-pointer"
+            >
+              ✓ Listo / Siguiente Venta
+            </button>
           </div>
         </div>
       )}

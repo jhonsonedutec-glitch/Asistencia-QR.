@@ -2394,16 +2394,16 @@ function registrarVentaCaja(data) {
     return { success: false, message: 'Debe incluir al menos un producto con monto válido.' };
   }
 
-  let estudianteNombre = 'Cliente General';
-  let estudianteGrado = '';
+  let estudianteNombre = String(data.nombre || data.estudiante || 'Cliente General').trim();
+  let estudianteGrado = String(data.grado || '').trim();
   let saldoAnterior = 0;
   let saldoRestante = 0;
 
   if (dni) {
     const e = buscarEstudiante(dni);
     if (e) {
-      estudianteNombre = e.nombre || '';
-      estudianteGrado = (e.grado ? e.grado + ' ' + (e.nivel || '') : '');
+      estudianteNombre = e.nombre || estudianteNombre;
+      estudianteGrado = (e.grado ? e.grado + ' ' + (e.nivel || '') : '') || estudianteGrado;
     }
   }
 
