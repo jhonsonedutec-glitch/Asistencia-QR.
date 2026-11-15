@@ -131,7 +131,8 @@ function doGet(e) {
     }
 
     if (action === 'cafeteria_reporte') {
-      return jsonResponse(obtenerReporteCafeteria());
+      const periodo = String(e.parameter.periodo || 'HOY').toUpperCase();
+      return jsonResponse(obtenerReporteCafeteria(periodo));
     }
 
     if (action === 'test_drive') {
@@ -2640,11 +2641,51 @@ function cambiarEstadoPedido(idPedido, nuevoEstado) {
   if (ultFila <= 1) return { success: false, message: 'Sin pedidos.' };
 
   const idBuscado = String(idPedido || '').trim().toLowerCase();
-  const ids = hojaP.getRange(2, 1, ultFila - 1, 1).getValues();
-  for (let i = 0; i < ids.length; i++) {
-    if (String(ids[i][0]).trim().toLowerCase() === idBuscado) {
+  const datosP = hojaP.getRange(2, 1, ultFila - 1, 12).getValues();
+  for (let i = 0; i < datosP.length; i++) {
+    if (String(datosP[i][0]).trim().toLowerCase() === idBuscado) {
       hojaP.getRange(i + 2, 10).setValue(nuevoEstado || 'Entregado');
       SpreadsheetApp.flush();
+
+      // Asegurar registro en Hoja de Ventas para trazabilidad contable
+      try {
+        const hojaV = ss.getSheetByName(HOJA_CAFETERIA_VENTAS);
+        if (hojaV) {
+          const ultV = hojaV.getLastRow();
+          let existeEnVentas = false;
+          if (ultV > 1) {
+            const idsV = hojaV.getRange(2, 1, ultV - 1, 1).getValues();
+            for (let v = 0; v < idsV.length; v++) {
+              if (String(idsV[v][0]).trim().toLowerCase() === idBuscado) {
+                existeEnVentas = true;
+                break;
+              }
+            }
+          }
+          if (!existeEnVentas) {
+            const tz = Session.getScriptTimeZone() || 'America/Lima';
+            const fHora = datosP[i][1] || Utilities.formatDate(new Date(), tz, 'dd/MM/yyyy HH:mm:ss');
+            const total = parseFloat(datosP[i][7]) || 0;
+            const turno = String(datosP[i][8] || 'Recreo').trim();
+            const det = String(datosP[i][6] || '').trim();
+            hojaV.appendRow([
+              datosP[i][0],
+              fHora,
+              datosP[i][3],
+              datosP[i][4],
+              datosP[i][5],
+              `[Pedido Lonchera - ${turno}] ${det}`,
+              total,
+              0,
+              0,
+              'Saldo Billetera (Pedido)',
+              'Cocina Cafetería'
+            ]);
+            SpreadsheetApp.flush();
+          }
+        }
+      } catch (eSync) {}
+
       return { success: true, message: 'Estado del pedido actualizado a ' + nuevoEstado + '.' };
     }
   }
@@ -2809,80 +2850,177 @@ function obtenerHistorialEstudianteCafeteria(dni) {
 // REPORTE FINANCIERO Y CONTROL PARA DIRECCIÓN
 // ------------------------------------------------------------
 
-function obtenerReporteCafeteria() {
+function coincidePeriodoCafeteria(fechaInput, periodo) {
+  const p = String(periodo || 'HOY').trim().toUpperCase();
+  if (p === 'TODO' || p === 'HISTORICO') return true;
+
+  const fNorm = normalizarFechaComparacion(fechaInput);
+  if (!fNorm) return false;
+
+  const tz = Session.getScriptTimeZone() || 'America/Lima';
+  const hoy = new Date();
+  const hoyNorm = Utilities.formatDate(hoy, tz, 'yyyy-MM-dd');
+
+  if (p === 'HOY') {
+    return fNorm === hoyNorm;
+  }
+
+  const pF = fNorm.split('-');
+  const pH = hoyNorm.split('-');
+  if (pF.length < 3 || pH.length < 3) return false;
+
+  const yF = parseInt(pF[0], 10);
+  const mF = parseInt(pF[1], 10);
+  const dF = parseInt(pF[2], 10);
+
+  const yH = parseInt(pH[0], 10);
+  const mH = parseInt(pH[1], 10);
+  const dH = parseInt(pH[2], 10);
+
+  if (p === 'MES') {
+    return yF === yH && mF === mH;
+  }
+
+  if (p === 'SEMANA') {
+    const tF = new Date(yF, mF - 1, dF).getTime();
+    const tH = new Date(yH, mH - 1, dH).getTime();
+    const diffDias = Math.floor((tH - tF) / (1000 * 60 * 60 * 24));
+    return diffDias >= 0 && diffDias <= 7;
+  }
+
+  return true;
+}
+
+function obtenerReporteCafeteria(periodo) {
   asegurarHojasCafeteria();
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  const tz = Session.getScriptTimeZone() || 'America/Lima';
-  const fechaHoyStr = Utilities.formatDate(new Date(), tz, 'dd/MM/yyyy');
+  const periodoFiltro = String(periodo || 'HOY').trim().toUpperCase();
 
-  // Ventas de hoy
+  // 1. Recorrer Hoja de Ventas
   const hojaV = ss.getSheetByName(HOJA_CAFETERIA_VENTAS);
-  const ultV = hojaV.getLastRow();
-  let ventasHoyTotal = 0;
-  let ventasHoyCantidad = 0;
-  let ventasMesTotal = 0;
+  const ultV = hojaV ? hojaV.getLastRow() : 0;
+  let ventasTotales = 0;
+  let cantidadVentas = 0;
+  const desgloseMetodos = {
+    SALDO_ESTUDIANTE: 0,
+    EFECTIVO: 0,
+    YAPE_DIRECTO: 0
+  };
   const productosConteo = {};
+  const idsVentasRegistradas = {};
 
   if (ultV > 1) {
-    const datosV = hojaV.getRange(2, 1, ultV - 1, 10).getValues();
-    const mesActual = (new Date()).getMonth() + 1;
-    const anoActual = (new Date()).getFullYear();
-
+    const datosV = hojaV.getRange(2, 1, ultV - 1, 11).getValues();
     for (let i = 0; i < datosV.length; i++) {
-      const fHora = String(datosV[i][1] || '').trim();
+      const idVenta = String(datosV[i][0] || '').trim();
+      const fHora = datosV[i][1];
       const total = parseFloat(datosV[i][6]) || 0;
       const detalle = String(datosV[i][5] || '').trim();
+      const metodo = String(datosV[i][9] || '').trim().toUpperCase();
 
-      if (fHora.startsWith(fechaHoyStr)) {
-        ventasHoyTotal += total;
-        ventasHoyCantidad++;
+      if (idVenta) {
+        idsVentasRegistradas[idVenta.toLowerCase()] = true;
       }
 
-      // Check mes
-      const parts = fHora.split('/');
-      if (parts.length >= 3 && parseInt(parts[1]) === mesActual && parseInt(parts[2]) === anoActual) {
-        ventasMesTotal += total;
-      }
+      if (coincidePeriodoCafeteria(fHora, periodoFiltro)) {
+        ventasTotales += total;
+        cantidadVentas++;
 
-      // Contar popularidad de productos
-      const items = detalle.split(',');
-      items.forEach(it => {
-        const clean = it.replace(/^\s*\d+x\s*/, '').replace(/\s*\(.*\)/, '').trim();
-        if (clean && !clean.startsWith('Ajuste')) {
-          productosConteo[clean] = (productosConteo[clean] || 0) + 1;
+        if (metodo.includes('SALDO') || metodo.includes('BILLETERA')) {
+          desgloseMetodos.SALDO_ESTUDIANTE += total;
+        } else if (metodo.includes('EFECTIVO')) {
+          desgloseMetodos.EFECTIVO += total;
+        } else if (metodo.includes('YAPE')) {
+          desgloseMetodos.YAPE_DIRECTO += total;
+        } else {
+          desgloseMetodos.EFECTIVO += total;
         }
-      });
+
+        // Conteo de productos
+        const items = detalle.split(',');
+        items.forEach(it => {
+          const clean = it.replace(/^\s*\[.*?\]\s*/, '').replace(/^\s*\d+x\s*/, '').replace(/\s*\(.*\)/, '').trim();
+          if (clean && !clean.startsWith('Ajuste')) {
+            productosConteo[clean] = (productosConteo[clean] || 0) + 1;
+          }
+        });
+      }
     }
   }
 
-  // Dinero en custodia (saldos totales de alumnos)
+  // 2. Revisar Hoja de Pedidos para sumar pedidos que aún no estuvieran en Ventas
+  const hojaP = ss.getSheetByName(HOJA_CAFETERIA_PEDIDOS);
+  const ultP = hojaP ? hojaP.getLastRow() : 0;
+  if (ultP > 1) {
+    const datosP = hojaP.getRange(2, 1, ultP - 1, 12).getValues();
+    for (let i = 0; i < datosP.length; i++) {
+      const idPed = String(datosP[i][0] || '').trim();
+      if (!idPed) continue;
+      // Solo si no fue ya sumado en hoja de ventas
+      if (!idsVentasRegistradas[idPed.toLowerCase()]) {
+        const fechaReg = datosP[i][1];
+        const fechaEnt = datosP[i][2];
+        const totalPed = parseFloat(datosP[i][7]) || 0;
+        const detPed = String(datosP[i][6] || '').trim();
+
+        // Si coincide con el periodo (por fecha de registro o entrega)
+        if (coincidePeriodoCafeteria(fechaReg || fechaEnt, periodoFiltro)) {
+          ventasTotales += totalPed;
+          cantidadVentas++;
+          desgloseMetodos.SALDO_ESTUDIANTE += totalPed;
+
+          const itemsP = detPed.split(',');
+          itemsP.forEach(it => {
+            const clean = it.replace(/^\s*\d+x\s*/, '').replace(/\s*\(.*\)/, '').trim();
+            if (clean) {
+              productosConteo[clean] = (productosConteo[clean] || 0) + 1;
+            }
+          });
+        }
+      }
+    }
+  }
+
+  // 3. Recargas Yape (Aprobadas y Pendientes)
+  const hojaR = ss.getSheetByName(HOJA_CAFETERIA_RECARGAS);
+  const ultR = hojaR ? hojaR.getLastRow() : 0;
+  let recargasAprobadasMonto = 0;
+  let recargasAprobadasCount = 0;
+  let recargasPendientesMonto = 0;
+  let recargasPendientesCount = 0;
+
+  if (ultR > 1) {
+    const datosR = hojaR.getRange(2, 1, ultR - 1, 13).getValues();
+    for (let i = 0; i < datosR.length; i++) {
+      const fRec = datosR[i][1];
+      const monto = parseFloat(datosR[i][6]) || 0;
+      const estadoRec = String(datosR[i][10] || '').trim().toUpperCase();
+
+      if (estadoRec === 'PENDIENTE') {
+        recargasPendientesCount++;
+        recargasPendientesMonto += monto;
+      } else if (estadoRec === 'APROBADA' || estadoRec === 'APROBADO') {
+        if (coincidePeriodoCafeteria(fRec, periodoFiltro)) {
+          recargasAprobadasMonto += monto;
+          recargasAprobadasCount++;
+        }
+      }
+    }
+  }
+
+  // 4. Saldo en custodia total en billeteras escolares
   const map = obtenerSaldosMap();
   let saldoTotalCustodia = 0;
   let alumnosConSaldo = 0;
   for (const dni in map) {
-    if (map[dni].saldo > 0) {
-      saldoTotalCustodia += map[dni].saldo;
+    const sVal = parseFloat(map[dni].saldo || 0);
+    if (sVal > 0) {
+      saldoTotalCustodia += sVal;
       alumnosConSaldo++;
     }
   }
 
-  // Recargas pendientes
-  const hojaR = ss.getSheetByName(HOJA_CAFETERIA_RECARGAS);
-  const ultR = hojaR.getLastRow();
-  let recargasPendientesCantidad = 0;
-  let recargasPendientesMonto = 0;
-  if (ultR > 1) {
-    const datosR = hojaR.getRange(2, 7, ultR - 1, 5).getValues();
-    for (let i = 0; i < datosR.length; i++) {
-      const st = String(datosR[i][4] || '').trim();
-      if (st === 'Pendiente') {
-        recargasPendientesCantidad++;
-        recargasPendientesMonto += (parseFloat(datosR[i][0]) || 0);
-      }
-    }
-  }
-
-  // Top 5 productos
+  // 5. Top 5 productos más vendidos
   const topProductos = Object.keys(productosConteo)
     .map(k => ({ nombre: k, cantidad: productosConteo[k] }))
     .sort((a, b) => b.cantidad - a.cantidad)
@@ -2890,13 +3028,24 @@ function obtenerReporteCafeteria() {
 
   return {
     success: true,
-    ventasHoyTotal: Math.round(ventasHoyTotal * 100) / 100,
-    ventasHoyCantidad: ventasHoyCantidad,
-    ventasMesTotal: Math.round(ventasMesTotal * 100) / 100,
+    periodo: periodoFiltro,
+    ventasTotales: Math.round(ventasTotales * 100) / 100,
+    cantidadVentas: cantidadVentas,
+    recargasAprobadasMonto: Math.round(recargasAprobadasMonto * 100) / 100,
+    recargasAprobadasCount: recargasAprobadasCount,
     saldoTotalCustodia: Math.round(saldoTotalCustodia * 100) / 100,
-    alumnosConSaldo: alumnosConSaldo,
-    recargasPendientesCantidad: recargasPendientesCantidad,
+    recargasPendientesCount: recargasPendientesCount,
     recargasPendientesMonto: Math.round(recargasPendientesMonto * 100) / 100,
-    topProductos: topProductos
+    alumnosConSaldo: alumnosConSaldo,
+    desgloseMetodos: {
+      SALDO_ESTUDIANTE: Math.round(desgloseMetodos.SALDO_ESTUDIANTE * 100) / 100,
+      EFECTIVO: Math.round(desgloseMetodos.EFECTIVO * 100) / 100,
+      YAPE_DIRECTO: Math.round(desgloseMetodos.YAPE_DIRECTO * 100) / 100
+    },
+    topProductos: topProductos,
+    // Aliases para compatibilidad histórica
+    ventasHoyTotal: Math.round(ventasTotales * 100) / 100,
+    ventasHoyCantidad: cantidadVentas,
+    ventasMesTotal: Math.round(ventasTotales * 100) / 100
   };
 }

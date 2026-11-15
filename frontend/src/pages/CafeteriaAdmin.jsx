@@ -62,6 +62,16 @@ const limpiarHora = (h) => {
   return s;
 };
 
+const coincideCategoria = (catProd, catFiltro) => {
+  if (!catFiltro || catFiltro === 'TODAS') return true;
+  if (!catProd) return catFiltro === 'Otros productos' || catFiltro === 'Otros';
+  const cp = String(catProd).trim().toLowerCase();
+  const cf = String(catFiltro).trim().toLowerCase();
+  if (cp === cf) return true;
+  if ((cf === 'otros productos' || cf === 'otros') && (cp === 'otros' || cp === 'otros productos')) return true;
+  return false;
+};
+
 export default function CafeteriaAdmin() {
   const [tabActiva, setTabActiva] = useState('pos'); // pos | pedidos | recargas | menu | reportes | saldos
   const [notificacion, setNotificacion] = useState(null);
@@ -133,15 +143,26 @@ export default function CafeteriaAdmin() {
 
       let estudiantesArray = [];
       if (estRes && estRes.success && Array.isArray(estRes.estudiantes)) {
-        estudiantesArray = estRes.estudiantes;
-        setEstudiantes(estRes.estudiantes);
+        estudiantesArray = estRes.estudiantes.map(e => {
+          const nom = (e.nombres || e.nombre || e.estudiante || '').trim();
+          return {
+            ...e,
+            dni: String(e.dni || '').trim(),
+            nombres: nom,
+            nombre: nom,
+            estudiante: nom,
+            grado: e.grado || '',
+            nivel: e.nivel || ''
+          };
+        });
+        setEstudiantes(estudiantesArray);
       }
 
       if (saldosRes && saldosRes.success && Array.isArray(saldosRes.saldos)) {
         const normSaldos = saldosRes.saldos.map(s => {
           const dniStr = String(s.dni || '').trim();
           const estRef = estudiantesArray.find(e => String(e.dni).trim() === dniStr);
-          const nombreCompleto = s.nombres || s.estudiante || s.nombre || (estRef ? (estRef.nombres || estRef.nombre) : '') || 'Estudiante';
+          const nombreCompleto = (s.nombres || s.estudiante || s.nombre || (estRef ? (estRef.nombres || estRef.nombre || estRef.estudiante) : '') || '').trim() || 'Estudiante';
           const saldoNum = Number(s.saldoActual !== undefined ? s.saldoActual : (s.saldo !== undefined ? s.saldo : 0));
           return {
             ...s,
@@ -163,6 +184,17 @@ export default function CafeteriaAdmin() {
           map[String(s.dni).trim()] = s;
         });
         setSaldosMap(map);
+
+        // Asegurar que estudiantes contenga a todos los alumnos que tienen saldo o billetera
+        setEstudiantes(prev => {
+          const pool = [...prev];
+          normSaldos.forEach(s => {
+            if (!pool.some(e => String(e.dni).trim() === s.dni)) {
+              pool.push(s);
+            }
+          });
+          return pool;
+        });
       }
 
       if (prodRes && prodRes.success && Array.isArray(prodRes.productos)) {
@@ -270,22 +302,45 @@ export default function CafeteriaAdmin() {
   const cargarReporte = useCallback(async () => {
     const res = await obtenerReporteCafeteria(periodoReporte);
     if (res && res.success) {
-      setDatosReporte(res);
+      setDatosReporte({
+        ...res,
+        ventasTotales: Number(res.ventasTotales !== undefined ? res.ventasTotales : (res.ventasHoyTotal || 0)),
+        cantidadVentas: Number(res.cantidadVentas !== undefined ? res.cantidadVentas : (res.ventasHoyCantidad || 0)),
+        recargasAprobadasMonto: Number(res.recargasAprobadasMonto !== undefined ? res.recargasAprobadasMonto : 0),
+        recargasAprobadasCount: Number(res.recargasAprobadasCount !== undefined ? res.recargasAprobadasCount : 0),
+        saldoTotalCustodia: Number(res.saldoTotalCustodia !== undefined ? res.saldoTotalCustodia : 0),
+        recargasPendientesCount: Number(res.recargasPendientesCount !== undefined ? res.recargasPendientesCount : (res.recargasPendientesCantidad || 0)),
+        recargasPendientesMonto: Number(res.recargasPendientesMonto !== undefined ? res.recargasPendientesMonto : 0),
+        desgloseMetodos: res.desgloseMetodos || {
+          SALDO_ESTUDIANTE: 0,
+          EFECTIVO: 0,
+          YAPE_DIRECTO: 0
+        }
+      });
     }
   }, [periodoReporte]);
 
   useEffect(() => {
     if (tabActiva === 'reportes') {
       cargarReporte();
+      const interval = setInterval(cargarReporte, 20000);
+      return () => clearInterval(interval);
     }
   }, [tabActiva, cargarReporte]);
 
   // Selección de estudiante para POS
   const seleccionarEstudiante = (est) => {
-    const dni = String(est.dni).trim();
+    const dni = String(est.dni || '').trim();
     const saldoObj = saldosMap[dni];
+    const nom = (est.nombres || est.nombre || est.estudiante || (saldoObj ? (saldoObj.nombres || saldoObj.nombre) : '') || '').trim() || 'Estudiante';
     setEstudianteSeleccionado({
       ...est,
+      dni: dni,
+      nombres: nom,
+      nombre: nom,
+      estudiante: nom,
+      grado: est.grado || (saldoObj ? saldoObj.grado : ''),
+      nivel: est.nivel || (saldoObj ? saldoObj.nivel : ''),
       saldoActual: saldoObj ? Number(saldoObj.saldoActual ?? saldoObj.saldo ?? 0) : 0
     });
     setBusquedaEstudiante('');
@@ -295,28 +350,43 @@ export default function CafeteriaAdmin() {
   // Manejador de escaneo QR en POS
   const handleScanQR = (code) => {
     if (!code) return;
-    const clean = String(code).trim();
-    // Buscar estudiante por DNI exacto o contenido
-    const encontrado = estudiantes.find(e => String(e.dni).trim() === clean);
+    const clean = String(code).trim().toLowerCase();
+    // Buscar estudiante por DNI exacto o contenido en nombres
+    const pool = [...estudiantes, ...saldosLista];
+    const encontrado = pool.find(e => {
+      const d = String(e.dni || '').trim().toLowerCase();
+      const n = String(e.nombres || e.nombre || e.estudiante || '').toLowerCase();
+      return d === clean || (clean.length >= 8 && d.includes(clean)) || (clean.length >= 4 && n.includes(clean));
+    });
     if (encontrado) {
       seleccionarEstudiante(encontrado);
       playSound('success');
-      showToast(`Estudiante identificado: ${encontrado.nombres}`);
+      showToast(`Estudiante identificado: ${encontrado.nombres || encontrado.nombre || 'Estudiante'}`);
     } else {
       playSound('error');
       showToast(`No se encontró estudiante con código: ${clean}`, 'error');
     }
   };
 
-  // Filtrado de estudiantes para el autocompletado en POS
+  // Filtrado de estudiantes para el autocompletado en POS (por DNI o por Nombres)
   const estudiantesFiltradosPOS = useMemo(() => {
     const q = busquedaEstudiante.trim().toLowerCase();
     if (!q || q.length < 2) return [];
-    return estudiantes.filter(e => 
-      (e.nombres && e.nombres.toLowerCase().includes(q)) ||
-      (e.dni && String(e.dni).includes(q))
-    ).slice(0, 8);
-  }, [busquedaEstudiante, estudiantes]);
+
+    // Combinar estudiantes con saldosLista para máxima cobertura
+    const pool = [...estudiantes];
+    saldosLista.forEach(s => {
+      if (!pool.some(e => String(e.dni).trim() === String(s.dni).trim())) {
+        pool.push(s);
+      }
+    });
+
+    return pool.filter(e => {
+      const nom = String(e.nombres || e.nombre || e.estudiante || '').toLowerCase();
+      const dni = String(e.dni || '').trim();
+      return nom.includes(q) || dni.includes(q);
+    }).slice(0, 8);
+  }, [busquedaEstudiante, estudiantes, saldosLista]);
 
   // Agregar al carrito
   const agregarAlCarrito = (prod) => {
@@ -792,23 +862,29 @@ export default function CafeteriaAdmin() {
                     {/* Lista flotante de autocompletado */}
                     {estudiantesFiltradosPOS.length > 0 && (
                       <div className="absolute left-0 right-0 top-full mt-2 bg-slate-950 border border-slate-700 rounded-xl shadow-2xl z-30 max-h-60 overflow-y-auto divide-y divide-slate-800">
-                        {estudiantesFiltradosPOS.map(est => (
-                          <div
-                            key={est.dni}
-                            onClick={() => seleccionarEstudiante(est)}
-                            className="p-3 hover:bg-amber-500/10 cursor-pointer flex items-center justify-between transition-colors"
-                          >
-                            <div>
-                              <div className="font-bold text-white text-sm">{est.nombres}</div>
-                              <div className="text-xs text-slate-400">DNI: {est.dni} | Grado: {est.grado} {est.nivel || ''}</div>
+                        {estudiantesFiltradosPOS.map(est => {
+                          const nom = est.nombres || est.nombre || est.estudiante || 'Estudiante';
+                          const dniStr = String(est.dni || '').trim();
+                          const saldoInfo = saldosMap[dniStr];
+                          const saldoNum = saldoInfo ? Number(saldoInfo.saldoActual ?? saldoInfo.saldo ?? 0) : 0;
+                          return (
+                            <div
+                              key={dniStr}
+                              onClick={() => seleccionarEstudiante(est)}
+                              className="p-3 hover:bg-amber-500/10 cursor-pointer flex items-center justify-between transition-colors"
+                            >
+                              <div>
+                                <div className="font-bold text-white text-sm">{nom}</div>
+                                <div className="text-xs text-slate-400">DNI: {dniStr} | Grado: {est.grado || ''} {est.nivel || ''}</div>
+                              </div>
+                              <div className="text-right">
+                                <span className="text-xs font-mono font-bold bg-slate-800 px-2 py-1 rounded text-amber-400">
+                                  S/ {saldoNum.toFixed(2)}
+                                </span>
+                              </div>
                             </div>
-                            <div className="text-right">
-                              <span className="text-xs font-mono font-bold bg-slate-800 px-2 py-1 rounded text-amber-400">
-                                S/ {saldosMap[String(est.dni).trim()] ? Number(saldosMap[String(est.dni).trim()].saldoActual || 0).toFixed(2) : '0.00'}
-                              </span>
-                            </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     )}
                   </div>
@@ -837,10 +913,12 @@ export default function CafeteriaAdmin() {
                   <div className="mt-4 p-4 bg-gradient-to-r from-slate-950 to-slate-900 border border-amber-500/30 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div className="flex items-center gap-3">
                       <div className="w-12 h-12 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-xl font-black text-amber-400">
-                        {estudianteSeleccionado.nombres ? estudianteSeleccionado.nombres[0] : 'E'}
+                        {(estudianteSeleccionado.nombres || estudianteSeleccionado.nombre || 'E')[0]}
                       </div>
                       <div>
-                        <div className="text-base font-extrabold text-white">{estudianteSeleccionado.nombres}</div>
+                        <div className="text-base font-extrabold text-white">
+                          {estudianteSeleccionado.nombres || estudianteSeleccionado.nombre || estudianteSeleccionado.estudiante || 'Estudiante'}
+                        </div>
                         <div className="text-xs text-slate-400">
                           DNI: <span className="font-mono font-semibold text-slate-300">{estudianteSeleccionado.dni}</span> | Grado: <span className="text-slate-300">{estudianteSeleccionado.grado} {estudianteSeleccionado.nivel || ''}</span>
                         </div>
@@ -880,18 +958,36 @@ export default function CafeteriaAdmin() {
                     <span>Productos Disponibles</span>
                   </div>
 
-                  {/* Buscador de productos */}
-                  <div className="relative w-full sm:w-64">
-                    <input
-                      type="text"
-                      placeholder="Buscar producto..."
-                      value={busquedaProducto}
-                      onChange={(e) => setBusquedaProducto(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
-                    />
-                    {busquedaProducto && (
-                      <button onClick={() => setBusquedaProducto('')} className="absolute right-2.5 top-2 text-slate-400 text-xs">✕</button>
-                    )}
+                  <div className="flex items-center gap-2 w-full sm:w-auto">
+                    {/* Buscador de productos */}
+                    <div className="relative flex-1 sm:w-56">
+                      <input
+                        type="text"
+                        placeholder="Buscar producto..."
+                        value={busquedaProducto}
+                        onChange={(e) => setBusquedaProducto(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
+                      />
+                      {busquedaProducto && (
+                        <button onClick={() => setBusquedaProducto('')} className="absolute right-2.5 top-2 text-slate-400 text-xs">✕</button>
+                      )}
+                    </div>
+
+                    {/* Botón rápido para agregar producto desde POS */}
+                    <button
+                      type="button"
+                      onClick={() => setModalProducto({
+                        isEdit: false,
+                        data: {
+                          categoria: categoriaSeleccionada !== 'TODAS' ? categoriaSeleccionada : 'Otros productos'
+                        }
+                      })}
+                      className="bg-amber-500 hover:bg-amber-400 text-slate-950 px-3 py-1.5 rounded-xl text-xs font-black flex items-center gap-1.5 shrink-0 shadow-md shadow-amber-500/20 transition-all cursor-pointer"
+                      title="Registrar nuevo producto en cafetería"
+                    >
+                      <span>➕</span>
+                      <span>Nuevo Producto</span>
+                    </button>
                   </div>
                 </div>
 
@@ -926,7 +1022,7 @@ export default function CafeteriaAdmin() {
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 max-h-[500px] overflow-y-auto pr-1">
                   {productos
                     .filter(p => p.enMenuHoy !== false)
-                    .filter(p => categoriaSeleccionada === 'TODAS' || p.categoria === categoriaSeleccionada)
+                    .filter(p => coincideCategoria(p.categoria, categoriaSeleccionada))
                     .filter(p => !busquedaProducto.trim() || p.nombre.toLowerCase().includes(busquedaProducto.toLowerCase()))
                     .map(prod => {
                       const itemEnCarrito = carrito.find(it => it.idProducto === prod.idProducto);
@@ -1019,6 +1115,37 @@ export default function CafeteriaAdmin() {
                         </div>
                       );
                     })}
+
+                  {/* Estado vacío con botón rápido de agregar producto en esta categoría */}
+                  {productos
+                    .filter(p => p.enMenuHoy !== false)
+                    .filter(p => coincideCategoria(p.categoria, categoriaSeleccionada))
+                    .filter(p => !busquedaProducto.trim() || p.nombre.toLowerCase().includes(busquedaProducto.toLowerCase())).length === 0 && (
+                      <div className="col-span-full py-12 px-4 text-center text-slate-400 bg-slate-950/60 rounded-xl border border-dashed border-slate-800 flex flex-col items-center justify-center gap-3">
+                        <span className="text-4xl opacity-50">🥪</span>
+                        <div>
+                          <p className="font-bold text-white text-sm">
+                            No hay productos disponibles en "{categoriaSeleccionada === 'TODAS' ? 'el menú de hoy' : categoriaSeleccionada}"
+                          </p>
+                          <p className="text-xs text-slate-500 mt-0.5">
+                            Puedes registrar alimentos, golosinas o artículos para esta categoría ahora mismo.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setModalProducto({
+                            isEdit: false,
+                            data: {
+                              categoria: categoriaSeleccionada !== 'TODAS' ? categoriaSeleccionada : 'Otros productos'
+                            }
+                          })}
+                          className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-black px-4 py-2 rounded-xl text-xs flex items-center gap-1.5 shadow-lg shadow-amber-500/20 transition-all cursor-pointer"
+                        >
+                          <span>➕</span>
+                          <span>Agregar Producto a "{categoriaSeleccionada === 'TODAS' ? 'Otros productos' : categoriaSeleccionada}"</span>
+                        </button>
+                      </div>
+                    )}
                 </div>
               </div>
             </div>
@@ -1600,7 +1727,7 @@ export default function CafeteriaAdmin() {
             {/* Listado de Productos */}
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
               {productos
-                .filter(p => filtroCategoriaMenu === 'TODAS' || p.categoria === filtroCategoriaMenu)
+                .filter(p => coincideCategoria(p.categoria, filtroCategoriaMenu))
                 .filter(p => !busquedaMenu.trim() || p.nombre.toLowerCase().includes(busquedaMenu.toLowerCase()))
                 .map(prod => (
                   <div
@@ -1672,6 +1799,36 @@ export default function CafeteriaAdmin() {
                     </div>
                   </div>
                 ))}
+
+              {/* Estado vacío con botón rápido para crear producto en esta categoría */}
+              {productos
+                .filter(p => coincideCategoria(p.categoria, filtroCategoriaMenu))
+                .filter(p => !busquedaMenu.trim() || p.nombre.toLowerCase().includes(busquedaMenu.toLowerCase())).length === 0 && (
+                  <div className="col-span-full py-14 px-4 text-center text-slate-400 bg-slate-900 border border-dashed border-slate-800 rounded-2xl flex flex-col items-center justify-center gap-3">
+                    <span className="text-4xl opacity-50">🍽️</span>
+                    <div>
+                      <p className="font-bold text-white text-sm">
+                        No hay productos registrados en "{filtroCategoriaMenu === 'TODAS' ? 'el catálogo' : filtroCategoriaMenu}"
+                      </p>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        Crea un nuevo producto asignado a esta categoría para que esté disponible en la cafetería.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setModalProducto({
+                        isEdit: false,
+                        data: {
+                          categoria: filtroCategoriaMenu !== 'TODAS' ? filtroCategoriaMenu : 'Otros productos'
+                        }
+                      })}
+                      className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-black px-4 py-2 rounded-xl text-xs flex items-center gap-2 shadow-lg shadow-amber-500/20 transition-all cursor-pointer"
+                    >
+                      <span>➕</span>
+                      <span>Crear Producto en "{filtroCategoriaMenu === 'TODAS' ? 'Otros productos' : filtroCategoriaMenu}"</span>
+                    </button>
+                  </div>
+                )}
             </div>
           </div>
         )}

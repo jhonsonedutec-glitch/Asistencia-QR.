@@ -25,6 +25,16 @@ const limpiarHoraStr = (h) => {
   return s;
 };
 
+const coincideCategoria = (catProd, catFiltro) => {
+  if (!catFiltro || catFiltro === 'TODAS') return true;
+  if (!catProd) return catFiltro === 'Otros productos' || catFiltro === 'Otros';
+  const cp = String(catProd).trim().toLowerCase();
+  const cf = String(catFiltro).trim().toLowerCase();
+  if (cp === cf) return true;
+  if ((cf === 'otros productos' || cf === 'otros') && (cp === 'otros' || cp === 'otros productos')) return true;
+  return false;
+};
+
 const normalizarHistorial = (res) => {
   if (!res) return null;
   const saldoActual = Number(res.saldoActual !== undefined ? res.saldoActual : (res.saldo?.saldoActual !== undefined ? res.saldo.saldoActual : 0));
@@ -1133,7 +1143,7 @@ const ConsultaPadres = () => {
                   {/* Grid de productos del menú */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                     {menuHoy
-                      .filter(p => categoriaMenuPadre === 'TODAS' || p.categoria === categoriaMenuPadre)
+                      .filter(p => coincideCategoria(p.categoria, categoriaMenuPadre))
                       .map(prod => {
                         const itemEnPedido = carritoPadre.find(it => it.idProducto === prod.idProducto);
                         const cantEnPedido = itemEnPedido ? itemEnPedido.cantidad : 0;
@@ -1224,9 +1234,23 @@ const ConsultaPadres = () => {
                         );
                       })}
 
-                    {menuHoy.length === 0 && (
-                      <div className="col-span-full py-8 text-center text-gray-400 text-xs">
-                        No hay productos marcados en el menú de hoy en este momento.
+                    {menuHoy.filter(p => coincideCategoria(p.categoria, categoriaMenuPadre)).length === 0 && (
+                      <div className="col-span-full py-10 text-center text-gray-500 bg-gray-50 rounded-2xl border border-dashed border-gray-200">
+                        <span className="text-3xl block mb-2 opacity-60">🥪</span>
+                        <p className="font-bold text-gray-700 text-xs">
+                          {menuHoy.length === 0 
+                            ? 'No hay productos marcados en el menú de hoy en este momento.'
+                            : `No hay productos en la categoría "${categoriaMenuPadre}".`}
+                        </p>
+                        {categoriaMenuPadre !== 'TODAS' && (
+                          <button
+                            type="button"
+                            onClick={() => setCategoriaMenuPadre('TODAS')}
+                            className="mt-2 text-xs text-amber-600 font-bold hover:underline"
+                          >
+                            Ver todas las categorías
+                          </button>
+                        )}
                       </div>
                     )}
                   </div>
