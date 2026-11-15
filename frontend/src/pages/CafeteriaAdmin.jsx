@@ -52,6 +52,16 @@ const getFechaHoyISO = () => {
   return `${y}-${m}-${d}`;
 };
 
+const limpiarHora = (h) => {
+  if (!h) return '';
+  const s = String(h).trim();
+  if (s.includes('1899') || s.includes('GMT')) {
+    const m = s.match(/\d{2}:\d{2}(:\d{2})?/);
+    return m ? m[0] : '';
+  }
+  return s;
+};
+
 export default function CafeteriaAdmin() {
   const [tabActiva, setTabActiva] = useState('pos'); // pos | pedidos | recargas | menu | reportes | saldos
   const [notificacion, setNotificacion] = useState(null);
@@ -121,14 +131,35 @@ export default function CafeteriaAdmin() {
         obtenerProductosCafeteria(false).catch(() => ({ success: false }))
       ]);
 
+      let estudiantesArray = [];
       if (estRes && estRes.success && Array.isArray(estRes.estudiantes)) {
+        estudiantesArray = estRes.estudiantes;
         setEstudiantes(estRes.estudiantes);
       }
 
       if (saldosRes && saldosRes.success && Array.isArray(saldosRes.saldos)) {
-        setSaldosLista(saldosRes.saldos);
+        const normSaldos = saldosRes.saldos.map(s => {
+          const dniStr = String(s.dni || '').trim();
+          const estRef = estudiantesArray.find(e => String(e.dni).trim() === dniStr);
+          const nombreCompleto = s.nombres || s.estudiante || s.nombre || (estRef ? (estRef.nombres || estRef.nombre) : '') || 'Estudiante';
+          const saldoNum = Number(s.saldoActual !== undefined ? s.saldoActual : (s.saldo !== undefined ? s.saldo : 0));
+          return {
+            ...s,
+            dni: dniStr,
+            nombres: nombreCompleto,
+            estudiante: nombreCompleto,
+            nombre: nombreCompleto,
+            grado: s.grado || (estRef ? estRef.grado : '') || '',
+            nivel: s.nivel || (estRef ? estRef.nivel : '') || '',
+            saldo: saldoNum,
+            saldoActual: saldoNum,
+            totalRecargado: Number(s.totalRecargado || 0),
+            totalConsumido: Number(s.totalConsumido || 0)
+          };
+        });
+        setSaldosLista(normSaldos);
         const map = {};
-        saldosRes.saldos.forEach(s => {
+        normSaldos.forEach(s => {
           map[String(s.dni).trim()] = s;
         });
         setSaldosMap(map);
@@ -173,7 +204,28 @@ export default function CafeteriaAdmin() {
   const cargarRecargas = useCallback(async () => {
     const res = await obtenerRecargasCafeteria(filtroEstadoRecargas);
     if (res && res.success && Array.isArray(res.recargas)) {
-      setRecargas(res.recargas);
+      const normRec = res.recargas.map(r => {
+        const idNorm = String(r.idRecarga || r.id || '');
+        const nomNorm = r.nombres || r.estudiante || r.nombre || 'Estudiante';
+        const numOp = r.codigoOperacion || r.numOperacion || '';
+        const urlComp = r.comprobanteUrl || r.urlComprobante || '';
+        const estNorm = String(r.estadoUpper || r.estado || 'PENDIENTE').toUpperCase();
+        return {
+          ...r,
+          idRecarga: idNorm,
+          id: idNorm,
+          nombres: nomNorm,
+          estudiante: nomNorm,
+          nombre: nomNorm,
+          codigoOperacion: numOp,
+          numOperacion: numOp,
+          comprobanteUrl: urlComp,
+          urlComprobante: urlComp,
+          estado: estNorm,
+          monto: Number(r.monto || 0)
+        };
+      });
+      setRecargas(normRec);
     }
   }, [filtroEstadoRecargas]);
 
@@ -203,7 +255,7 @@ export default function CafeteriaAdmin() {
     const saldoObj = saldosMap[dni];
     setEstudianteSeleccionado({
       ...est,
-      saldoActual: saldoObj ? Number(saldoObj.saldoActual || 0) : 0
+      saldoActual: saldoObj ? Number(saldoObj.saldoActual ?? saldoObj.saldo ?? 0) : 0
     });
     setBusquedaEstudiante('');
     setMostrarEscanerPOS(false);
@@ -1316,13 +1368,13 @@ export default function CafeteriaAdmin() {
                     {/* Encabezado */}
                     <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-3">
                       <div>
-                        <div className="font-black text-white text-base">{rec.nombres}</div>
-                        <div className="text-xs text-slate-400">DNI: {rec.dni} | Grado: {rec.grado}</div>
+                        <div className="font-black text-white text-base">{rec.nombres || rec.estudiante || 'Estudiante'}</div>
+                        <div className="text-xs text-slate-400">DNI: {rec.dni} | Grado: {rec.grado || '--'}</div>
                       </div>
                       <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full border ${
-                        rec.estado === 'PENDIENTE'
+                        (rec.estado || '').toUpperCase() === 'PENDIENTE'
                           ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
-                          : rec.estado === 'APROBADA'
+                          : (rec.estado || '').toUpperCase() === 'APROBADA'
                           ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
                           : 'bg-rose-500/20 text-rose-300 border-rose-500/30'
                       }`}>
@@ -1341,24 +1393,24 @@ export default function CafeteriaAdmin() {
                       <div>
                         <div className="text-[10px] text-slate-500 uppercase font-bold">Cód. Operación</div>
                         <div className="text-sm font-bold font-mono text-white">
-                          {rec.codigoOperacion || 'N/A'}
+                          {rec.codigoOperacion || rec.numOperacion || 'N/A'}
                         </div>
                       </div>
                       <div className="col-span-2 text-[11px] text-slate-400">
-                        📅 Fecha: <span className="text-slate-300">{rec.fecha} {rec.hora || ''}</span>
+                        📅 Fecha: <span className="text-slate-300">{rec.fecha} {limpiarHora(rec.hora)}</span>
                         {rec.telefonoOrigen && <span> | Cel: {rec.telefonoOrigen}</span>}
                       </div>
                     </div>
 
                     {/* Comprobante / Voucher Preview */}
-                    {rec.comprobanteUrl ? (
+                    {(rec.comprobanteUrl || rec.urlComprobante) ? (
                       <div className="mb-3">
                         <div
-                          onClick={() => setModalComprobante(rec.comprobanteUrl)}
+                          onClick={() => setModalComprobante(rec.comprobanteUrl || rec.urlComprobante)}
                           className="w-full h-32 bg-slate-950 border border-slate-800 rounded-xl overflow-hidden cursor-pointer relative group flex items-center justify-center"
                         >
                           <img
-                            src={rec.comprobanteUrl}
+                            src={rec.comprobanteUrl || rec.urlComprobante}
                             alt="Voucher Yape"
                             className="w-full h-full object-cover group-hover:scale-105 transition-transform"
                           />
@@ -1590,15 +1642,17 @@ export default function CafeteriaAdmin() {
                       .filter(s => {
                         const q = busquedaSaldo.toLowerCase().trim();
                         if (!q) return true;
-                        return (s.nombres && s.nombres.toLowerCase().includes(q)) || (s.dni && String(s.dni).includes(q));
+                        const nom = String(s.nombres || s.estudiante || s.nombre || '').toLowerCase();
+                        const dni = String(s.dni || '').trim();
+                        return nom.includes(q) || dni.includes(q);
                       })
                       .map(s => (
                         <tr key={s.dni} className="hover:bg-slate-800/50 transition-colors">
                           <td className="py-3 px-4 font-mono font-bold text-slate-400">{s.dni}</td>
-                          <td className="py-3 px-4 font-bold text-white">{s.nombres}</td>
-                          <td className="py-3 px-4 text-slate-400">{s.grado}</td>
+                          <td className="py-3 px-4 font-bold text-white">{s.nombres || s.estudiante || s.nombre || 'Estudiante'}</td>
+                          <td className="py-3 px-4 text-slate-400">{s.grado || s.nivel || '--'}</td>
                           <td className="py-3 px-4 text-right font-mono font-black text-sm text-amber-400">
-                            S/ {Number(s.saldoActual || 0).toFixed(2)}
+                            S/ {Number(s.saldoActual ?? s.saldo ?? 0).toFixed(2)}
                           </td>
                           <td className="py-3 px-4 text-right font-mono text-emerald-400">
                             S/ {Number(s.totalRecargado || 0).toFixed(2)}
@@ -1610,8 +1664,8 @@ export default function CafeteriaAdmin() {
                             <button
                               onClick={() => setModalAjuste({
                                 dni: s.dni,
-                                nombres: s.nombres,
-                                saldoActual: Number(s.saldoActual || 0)
+                                nombres: s.nombres || s.estudiante || s.nombre || 'Estudiante',
+                                saldoActual: Number(s.saldoActual ?? s.saldo ?? 0)
                               })}
                               className="bg-slate-800 hover:bg-slate-700 text-amber-300 px-2.5 py-1 rounded-lg font-bold text-[11px] transition-colors"
                             >

@@ -248,7 +248,7 @@ function doPost(e) {
     }
 
     if (action === 'cafeteria_procesar_recarga') {
-      return jsonResponse(procesarRecargaYape(data.idRecarga, data.accion, data.validadoPor));
+      return jsonResponse(procesarRecargaYape(data.idRecarga, data.accion, data.validadoPor, data.motivoRechazo));
     }
 
     if (action === 'cafeteria_ajustar_saldo_manual') {
@@ -1973,27 +1973,55 @@ function obtenerSaldosCafeteria() {
   const lista = [];
   const estMap = actualizarCacheEstudiantes() || {};
 
-  // Asegurar que todos los alumnos existan en el mapa de saldos
+  // Asegurar que todos los alumnos existan en el mapa de saldos y tengan su nombre visible
   for (const dni in estMap) {
-    if (map[dni]) {
-      lista.push(map[dni]);
-    } else {
-      const e = estMap[dni];
+    const e = estMap[dni] || {};
+    const s = map[dni] || {};
+    const nombreCompleto = s.estudiante || e.nombre || 'Estudiante';
+    const saldoNum = parseFloat(s.saldo || 0);
+    const recargadoNum = parseFloat(s.totalRecargado || 0);
+    const consumidoNum = parseFloat(s.totalConsumido || 0);
+
+    lista.push({
+      fila: s.fila || 0,
+      dni: dni,
+      estudiante: nombreCompleto,
+      nombres: nombreCompleto,
+      nombre: nombreCompleto,
+      grado: s.grado || e.grado || '',
+      nivel: s.nivel || e.nivel || '',
+      saldo: saldoNum,
+      saldoActual: saldoNum,
+      totalRecargado: recargadoNum,
+      totalConsumido: consumidoNum,
+      ultimaActualizacion: s.ultimaActualizacion || '--'
+    });
+  }
+
+  // Si hubiera DNI en map que no están en estMap
+  for (const dni in map) {
+    if (!estMap[dni]) {
+      const s = map[dni];
+      const nombreCompleto = s.estudiante || 'Estudiante';
+      const saldoNum = parseFloat(s.saldo || 0);
       lista.push({
-        fila: 0,
+        fila: s.fila || 0,
         dni: dni,
-        estudiante: e.nombre || '',
-        grado: e.grado || '',
-        nivel: e.nivel || '',
-        saldo: 0,
-        totalRecargado: 0,
-        totalConsumido: 0,
-        ultimaActualizacion: '--'
+        estudiante: nombreCompleto,
+        nombres: nombreCompleto,
+        nombre: nombreCompleto,
+        grado: s.grado || '',
+        nivel: s.nivel || '',
+        saldo: saldoNum,
+        saldoActual: saldoNum,
+        totalRecargado: parseFloat(s.totalRecargado || 0),
+        totalConsumido: parseFloat(s.totalConsumido || 0),
+        ultimaActualizacion: s.ultimaActualizacion || '--'
       });
     }
   }
 
-  lista.sort((a, b) => (a.estudiante || '').localeCompare(b.estudiante || ''));
+  lista.sort((a, b) => (a.nombres || a.estudiante || '').localeCompare(b.nombres || b.estudiante || ''));
   return { success: true, saldos: lista };
 }
 
@@ -2006,18 +2034,30 @@ function actualizarSaldoEstudiante(dni, deltaSaldo, esRecarga, esConsumo) {
 
   const map = obtenerSaldosMap();
   const item = map[dni];
+  const e = buscarEstudiante(dni) || {};
 
   if (item && item.fila > 0) {
+    const nombreGuardar = item.estudiante || e.nombre || 'Estudiante';
+    const gradoGuardar = item.grado || e.grado || '';
+    const nivelGuardar = item.nivel || e.nivel || '';
+
     const nuevoSaldo = Math.round((item.saldo + deltaSaldo) * 100) / 100;
     const nuevoRecargado = esRecarga ? (Math.round((item.totalRecargado + Math.max(0, deltaSaldo)) * 100) / 100) : item.totalRecargado;
     const nuevoConsumido = esConsumo ? (Math.round((item.totalConsumido + Math.abs(deltaSaldo)) * 100) / 100) : item.totalConsumido;
 
-    hoja.getRange(item.fila, 5, 1, 4).setValues([[nuevoSaldo, nuevoRecargado, nuevoConsumido, fechaHora]]);
+    hoja.getRange(item.fila, 2, 1, 7).setValues([[
+      nombreGuardar,
+      gradoGuardar,
+      nivelGuardar,
+      nuevoSaldo,
+      nuevoRecargado,
+      nuevoConsumido,
+      fechaHora
+    ]]);
     SpreadsheetApp.flush();
     return { success: true, saldoAnterior: item.saldo, nuevoSaldo: nuevoSaldo };
   } else {
     // Alumno nuevo en la tabla de saldos
-    const e = buscarEstudiante(dni) || {};
     const nuevoSaldo = Math.round(deltaSaldo * 100) / 100;
     const nuevoRecargado = esRecarga ? nuevoSaldo : 0;
     const nuevoConsumido = esConsumo ? Math.abs(nuevoSaldo) : 0;
@@ -2086,7 +2126,7 @@ function reportarRecargaYape(data) {
 
   const dni = String(data.dni || '').trim();
   const monto = parseFloat(data.monto) || 0;
-  const numOperacion = String(data.numOperacion || '').trim();
+  const numOperacion = String(data.codigoOperacion || data.numOperacion || '').trim();
 
   if (!dni || !/^\d{8}$/.test(dni)) {
     return { success: false, message: 'DNI de estudiante inválido.' };
@@ -2095,37 +2135,43 @@ function reportarRecargaYape(data) {
     return { success: false, message: 'El monto de recarga debe ser mayor a 0.' };
   }
 
-  const e = buscarEstudiante(dni);
-  if (!e) {
-    return { success: false, message: 'Estudiante no encontrado con ese DNI.' };
-  }
+  const e = buscarEstudiante(dni) || {};
 
+  // Manejar comprobante en base64 (soporta comprobanteBase64 directo o dentro de comprobante.base64)
   let urlComprobante = '';
-  if (data.comprobante && data.comprobante.base64) {
-    const resDrive = subirArchivoADrive(
-      data.comprobante.base64,
-      data.comprobante.nombre || ('Yape_' + dni + '.jpg'),
-      data.comprobante.tipo || 'image/jpeg',
-      'Cafeteria_Comprobantes'
-    );
-    if (resDrive && resDrive.success) {
-      urlComprobante = resDrive.idArchivo ? ('https://lh3.googleusercontent.com/d/' + resDrive.idArchivo) : resDrive.url;
-    }
-  }
-
+  const base64Img = data.comprobanteBase64 || (data.comprobante && data.comprobante.base64) || '';
   const tz = Session.getScriptTimeZone() || 'America/Lima';
   const ahora = new Date();
   const fReg = Utilities.formatDate(ahora, tz, 'dd/MM/yyyy');
   const hReg = Utilities.formatDate(ahora, tz, 'HH:mm:ss');
+  const nombreImg = data.comprobanteNombre || (data.comprobante && data.comprobante.nombre) || ('Yape_' + dni + '_' + Utilities.formatDate(ahora, tz, 'yyyyMMdd_HHmmss') + '.jpg');
+  const mimeImg = data.comprobanteMime || (data.comprobante && data.comprobante.tipo) || 'image/jpeg';
+
+  if (base64Img) {
+    try {
+      const resDrive = subirArchivoADrive(
+        base64Img,
+        nombreImg,
+        mimeImg,
+        'Cafeteria_Comprobantes'
+      );
+      if (resDrive && resDrive.success) {
+        urlComprobante = resDrive.idArchivo ? ('https://lh3.googleusercontent.com/d/' + resDrive.idArchivo) : (resDrive.url || '');
+      }
+    } catch (errDrive) {
+      Logger.log('Error subiendo comprobante a Drive: ' + errDrive.toString());
+    }
+  }
+
   const idRecarga = 'YAPE-' + Utilities.formatDate(ahora, tz, 'yyyyMMdd_HHmmss') + '-' + Math.floor(Math.random() * 900 + 100);
 
   hoja.appendRow([
     idRecarga,
     "'" + fReg,
-    hReg,
+    "'" + hReg,
     dni,
-    e.nombre || '',
-    (e.grado ? e.grado + ' ' + (e.nivel || '') : ''),
+    e.nombre || data.nombres || '',
+    (e.grado ? e.grado + ' ' + (e.nivel || '') : (data.grado || '')),
     monto,
     'Yape',
     numOperacion,
@@ -2139,7 +2185,10 @@ function reportarRecargaYape(data) {
   return {
     success: true,
     message: 'Recarga por Yape de S/ ' + monto.toFixed(2) + ' enviada. La cafetería validará el abono a la brevedad.',
-    idRecarga: idRecarga
+    idRecarga: idRecarga,
+    id: idRecarga,
+    urlComprobante: urlComprobante,
+    comprobanteUrl: urlComprobante
   };
 }
 
@@ -2153,31 +2202,65 @@ function obtenerRecargasCafeteria(estadoFiltro) {
   const datos = hoja.getRange(2, 1, ultFila - 1, 13).getValues();
   const tz = Session.getScriptTimeZone() || 'America/Lima';
   const recargas = [];
+  const filtroUpper = String(estadoFiltro || 'TODAS').trim().toUpperCase();
 
   for (let i = datos.length - 1; i >= 0; i--) {
     const id = String(datos[i][0] || '').trim();
     if (!id) continue;
 
-    const estado = String(datos[i][10] || 'Pendiente').trim();
-    if (estadoFiltro && estadoFiltro !== 'TODAS' && estado.toLowerCase() !== estadoFiltro.toLowerCase()) {
-      continue;
+    const estadoRaw = String(datos[i][10] || 'Pendiente').trim();
+    const estadoUpper = estadoRaw.toUpperCase();
+
+    if (filtroUpper !== 'TODAS') {
+      if (filtroUpper === 'PENDIENTES' || filtroUpper === 'PENDIENTE') {
+        if (!estadoUpper.includes('PENDIENTE')) continue;
+      } else if (filtroUpper === 'APROBADAS' || filtroUpper === 'APROBADA') {
+        if (!estadoUpper.includes('APROBADA')) continue;
+      } else if (filtroUpper === 'RECHAZADAS' || filtroUpper === 'RECHAZADA') {
+        if (!estadoUpper.includes('RECHAZADA')) continue;
+      } else {
+        if (estadoUpper !== filtroUpper) continue;
+      }
     }
 
     const fReg = datos[i][1];
     const fechaRegStr = fReg instanceof Date ? Utilities.formatDate(fReg, tz, 'dd/MM/yyyy') : String(fReg || '').trim();
 
+    // Sanitizar hora evitando epoch de 1899
+    let horaStr = '';
+    const hRaw = datos[i][2];
+    if (hRaw instanceof Date) {
+      horaStr = Utilities.formatDate(hRaw, tz, 'HH:mm:ss');
+    } else {
+      horaStr = String(hRaw || '').trim();
+      if (horaStr.includes('1899') || horaStr.includes('GMT')) {
+        const m = horaStr.match(/\d{2}:\d{2}(:\d{2})?/);
+        if (m) horaStr = m[0];
+      }
+    }
+
+    const numOp = String(datos[i][8] || '').trim();
+    const urlComp = String(datos[i][9] || '').trim();
+    const estudianteNombre = String(datos[i][4] || '').trim();
+
     recargas.push({
       id: id,
+      idRecarga: id,
       fecha: fechaRegStr,
-      hora: String(datos[i][2] || '').trim(),
+      hora: horaStr,
       dni: String(datos[i][3] || '').trim(),
-      estudiante: String(datos[i][4] || '').trim(),
+      estudiante: estudianteNombre,
+      nombres: estudianteNombre,
+      nombre: estudianteNombre,
       grado: String(datos[i][5] || '').trim(),
       monto: parseFloat(datos[i][6]) || 0,
       metodo: String(datos[i][7] || 'Yape').trim(),
-      numOperacion: String(datos[i][8] || '').trim(),
-      urlComprobante: String(datos[i][9] || '').trim(),
-      estado: estado,
+      numOperacion: numOp,
+      codigoOperacion: numOp,
+      urlComprobante: urlComp,
+      comprobanteUrl: urlComp,
+      estado: estadoRaw,
+      estadoUpper: estadoUpper.includes('APROBADA') ? 'APROBADA' : (estadoUpper.includes('RECHAZADA') ? 'RECHAZADA' : 'PENDIENTE'),
       validadoPor: String(datos[i][11] || '').trim(),
       fechaValidacion: String(datos[i][12] || '').trim()
     });
@@ -2186,34 +2269,41 @@ function obtenerRecargasCafeteria(estadoFiltro) {
   return { success: true, recargas: recargas };
 }
 
-function procesarRecargaYape(idRecarga, accion, validadoPor) {
+function procesarRecargaYape(idRecarga, accion, validadoPor, motivoRechazo) {
   asegurarHojasCafeteria();
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const hoja = ss.getSheetByName(HOJA_CAFETERIA_RECARGAS);
   const ultFila = hoja.getLastRow();
   if (ultFila <= 1) return { success: false, message: 'Sin registros de recarga.' };
 
-  const datos = hoja.getRange(2, 1, ultFila - 1, 11).getValues();
+  const idRecargaLimpio = String(idRecarga || '').trim();
+  if (!idRecargaLimpio) {
+    return { success: false, message: 'ID de recarga no proporcionado.' };
+  }
+
+  const datos = hoja.getRange(2, 1, ultFila - 1, 13).getValues();
   const tz = Session.getScriptTimeZone() || 'America/Lima';
   const ahoraStr = Utilities.formatDate(new Date(), tz, 'dd/MM/yyyy HH:mm:ss');
   const usuario = validadoPor || 'Cajero Cafetería';
+  const esAprobacion = String(accion || '').trim().toUpperCase() === 'APROBAR';
 
   for (let i = 0; i < datos.length; i++) {
-    if (String(datos[i][0]).trim() === idRecarga) {
+    const idFila = String(datos[i][0] || '').trim();
+    if (idFila === idRecargaLimpio) {
       const estadoActual = String(datos[i][10] || '').trim();
-      if (estadoActual !== 'Pendiente') {
-        return { success: false, message: 'Esta recarga ya fue procesada anteriormente (' + estadoActual + ').' };
+      if (estadoActual.toLowerCase() === 'aprobada' && esAprobacion) {
+        return { success: false, message: 'Esta recarga ya fue aprobada anteriormente.' };
       }
 
       const fila = i + 2;
       const dni = String(datos[i][3] || '').trim();
       const monto = parseFloat(datos[i][6]) || 0;
 
-      if (accion === 'Aprobar') {
+      if (esAprobacion) {
         hoja.getRange(fila, 11, 1, 3).setValues([['Aprobada', usuario, ahoraStr]]);
         SpreadsheetApp.flush();
 
-        // Abonar al saldo del estudiante
+        // Abonar al saldo del estudiante y actualizar datos en hoja de saldos
         const resAbono = actualizarSaldoEstudiante(dni, monto, true, false);
         return { 
           success: true, 
@@ -2221,14 +2311,15 @@ function procesarRecargaYape(idRecarga, accion, validadoPor) {
           nuevoSaldo: resAbono.nuevoSaldo
         };
       } else {
-        hoja.getRange(fila, 11, 1, 3).setValues([['Rechazada', usuario, ahoraStr]]);
+        const razon = String(motivoRechazo || 'Comprobante no válido').trim();
+        hoja.getRange(fila, 11, 1, 3).setValues([['Rechazada (' + razon + ')', usuario, ahoraStr]]);
         SpreadsheetApp.flush();
         return { success: true, message: 'Recarga marcada como RECHAZADA.' };
       }
     }
   }
 
-  return { success: false, message: 'Recarga no encontrada.' };
+  return { success: false, message: 'No se encontró la recarga con ID: ' + idRecargaLimpio };
 }
 
 // ------------------------------------------------------------
@@ -2457,23 +2548,44 @@ function obtenerHistorialEstudianteCafeteria(dni) {
 
   // 1. Obtener recargas de este DNI
   const hojaR = ss.getSheetByName(HOJA_CAFETERIA_RECARGAS);
-  const ultR = hojaR.getLastRow();
+  const ultR = hojaR ? hojaR.getLastRow() : 0;
   const recargas = [];
   if (ultR > 1) {
-    const datosR = hojaR.getRange(2, 1, ultR - 1, 11).getValues();
+    const datosR = hojaR.getRange(2, 1, ultR - 1, 13).getValues();
     for (let i = datosR.length - 1; i >= 0; i--) {
       if (String(datosR[i][3]).trim() === dni) {
         const f = datosR[i][1];
         const fStr = f instanceof Date ? Utilities.formatDate(f, tz, 'dd/MM/yyyy') : String(f || '').trim();
+
+        let horaStr = '';
+        const hRaw = datosR[i][2];
+        if (hRaw instanceof Date) {
+          horaStr = Utilities.formatDate(hRaw, tz, 'HH:mm:ss');
+        } else {
+          horaStr = String(hRaw || '').trim();
+          if (horaStr.includes('1899') || horaStr.includes('GMT')) {
+            const m = horaStr.match(/\d{2}:\d{2}(:\d{2})?/);
+            if (m) horaStr = m[0];
+          }
+        }
+
+        const numOp = String(datosR[i][8] || '').trim();
+        const urlComp = String(datosR[i][9] || '').trim();
+        const estRaw = String(datosR[i][10] || 'Pendiente').trim();
+
         recargas.push({
           id: String(datosR[i][0] || ''),
+          idRecarga: String(datosR[i][0] || ''),
           fecha: fStr,
-          hora: String(datosR[i][2] || ''),
+          hora: horaStr,
           monto: parseFloat(datosR[i][6]) || 0,
           metodo: String(datosR[i][7] || 'Yape'),
-          numOperacion: String(datosR[i][8] || ''),
-          urlComprobante: String(datosR[i][9] || ''),
-          estado: String(datosR[i][10] || 'Pendiente')
+          numOperacion: numOp,
+          codigoOperacion: numOp,
+          urlComprobante: urlComp,
+          comprobanteUrl: urlComp,
+          estado: estRaw,
+          estadoUpper: estRaw.toUpperCase()
         });
       }
     }
@@ -2481,19 +2593,24 @@ function obtenerHistorialEstudianteCafeteria(dni) {
 
   // 2. Obtener consumos/ventas de este DNI
   const hojaV = ss.getSheetByName(HOJA_CAFETERIA_VENTAS);
-  const ultV = hojaV.getLastRow();
+  const ultV = hojaV ? hojaV.getLastRow() : 0;
   const consumos = [];
   if (ultV > 1) {
     const datosV = hojaV.getRange(2, 1, ultV - 1, 10).getValues();
     for (let i = datosV.length - 1; i >= 0; i--) {
       if (String(datosV[i][2]).trim() === dni) {
+        const fhStr = String(datosV[i][1] || '').trim();
+        const partesFH = fhStr.split(' ');
         consumos.push({
           id: String(datosV[i][0] || ''),
-          fechaHora: String(datosV[i][1] || ''),
+          fechaHora: fhStr,
+          fecha: partesFH[0] || fhStr,
+          hora: partesFH[1] || '',
           detalle: String(datosV[i][5] || ''),
           total: parseFloat(datosV[i][6]) || 0,
           saldoRestante: parseFloat(datosV[i][8]) || 0,
-          metodo: String(datosV[i][9] || 'Saldo')
+          metodo: String(datosV[i][9] || 'SALDO_ESTUDIANTE'),
+          metodoPago: String(datosV[i][9] || 'SALDO_ESTUDIANTE')
         });
       }
     }
@@ -2501,7 +2618,7 @@ function obtenerHistorialEstudianteCafeteria(dni) {
 
   // 3. Obtener pedidos programados de este DNI
   const hojaP = ss.getSheetByName(HOJA_CAFETERIA_PEDIDOS);
-  const ultP = hojaP.getLastRow();
+  const ultP = hojaP ? hojaP.getLastRow() : 0;
   const pedidos = [];
   if (ultP > 1) {
     const datosP = hojaP.getRange(2, 1, ultP - 1, 10).getValues();
@@ -2512,8 +2629,10 @@ function obtenerHistorialEstudianteCafeteria(dni) {
         pedidos.push({
           id: String(datosP[i][0] || ''),
           fechaEntrega: fStr,
+          fecha: fStr,
           detalle: String(datosP[i][6] || ''),
           total: parseFloat(datosP[i][7]) || 0,
+          turnoEntrega: String(datosP[i][8] || 'Recreo'),
           turno: String(datosP[i][8] || 'Recreo'),
           estado: String(datosP[i][9] || 'Pendiente')
         });
@@ -2521,13 +2640,23 @@ function obtenerHistorialEstudianteCafeteria(dni) {
     }
   }
 
+  const saldoActualNum = parseFloat(saldoInfo.saldo || 0);
+  const recargadoNum = parseFloat(saldoInfo.totalRecargado || 0);
+  const consumidoNum = parseFloat(saldoInfo.totalConsumido || 0);
+
   return {
     success: true,
-    saldoActual: saldoInfo.saldo,
-    totalRecargado: saldoInfo.totalRecargado,
-    totalConsumido: saldoInfo.totalConsumido,
+    saldoActual: saldoActualNum,
+    totalRecargado: recargadoNum,
+    totalConsumido: consumidoNum,
+    saldo: {
+      saldoActual: saldoActualNum,
+      totalRecargado: recargadoNum,
+      totalConsumido: consumidoNum
+    },
     recargas: recargas,
     consumos: consumos,
+    ventas: consumos,
     pedidos: pedidos
   };
 }

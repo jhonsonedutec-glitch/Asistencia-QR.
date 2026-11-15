@@ -15,6 +15,60 @@ import {
 
 const STORAGE_KEY = 'ultimo_dni_padre';
 
+const limpiarHoraStr = (h) => {
+  if (!h) return '';
+  const s = String(h).trim();
+  if (s.includes('1899') || s.includes('GMT')) {
+    const m = s.match(/\d{2}:\d{2}(:\d{2})?/);
+    return m ? m[0] : '';
+  }
+  return s;
+};
+
+const normalizarHistorial = (res) => {
+  if (!res) return null;
+  const saldoActual = Number(res.saldoActual !== undefined ? res.saldoActual : (res.saldo?.saldoActual !== undefined ? res.saldo.saldoActual : 0));
+  const totalRecargado = Number(res.totalRecargado !== undefined ? res.totalRecargado : (res.saldo?.totalRecargado !== undefined ? res.saldo.totalRecargado : 0));
+  const totalConsumido = Number(res.totalConsumido !== undefined ? res.totalConsumido : (res.saldo?.totalConsumido !== undefined ? res.saldo.totalConsumido : 0));
+
+  const recargas = Array.isArray(res.recargas) ? res.recargas.map(r => {
+    const numOp = r.codigoOperacion || r.numOperacion || 'N/A';
+    const urlComp = r.comprobanteUrl || r.urlComprobante || '';
+    const estRaw = String(r.estado || 'Pendiente').trim();
+    return {
+      ...r,
+      idRecarga: r.idRecarga || r.id,
+      id: r.id || r.idRecarga,
+      hora: limpiarHoraStr(r.hora),
+      numOperacion: numOp,
+      codigoOperacion: numOp,
+      urlComprobante: urlComp,
+      comprobanteUrl: urlComp,
+      estado: estRaw,
+      estadoUpper: (r.estadoUpper || estRaw).toUpperCase()
+    };
+  }) : [];
+
+  const consumos = Array.isArray(res.consumos) ? res.consumos : (Array.isArray(res.ventas) ? res.ventas : []);
+  const pedidos = Array.isArray(res.pedidos) ? res.pedidos : [];
+
+  return {
+    ...res,
+    saldoActual,
+    totalRecargado,
+    totalConsumido,
+    saldo: {
+      saldoActual,
+      totalRecargado,
+      totalConsumido
+    },
+    recargas,
+    consumos,
+    ventas: consumos,
+    pedidos
+  };
+};
+
 const ConsultaPadres = () => {
   const [dni, setDni] = useState(() => {
     try {
@@ -124,7 +178,7 @@ const ConsultaPadres = () => {
           setLoadingCafeteria(true);
           obtenerHistorialEstudianteCafeteria(dniAConsultar).then(cafRes => {
             if (cafRes && cafRes.success) {
-              setCafeteriaHistorial(cafRes);
+              setCafeteriaHistorial(normalizarHistorial(cafRes));
             }
           }).finally(() => {
             setLoadingCafeteria(false);
@@ -197,7 +251,7 @@ const ConsultaPadres = () => {
     if (!dniConsultar) return;
     const res = await obtenerHistorialEstudianteCafeteria(dniConsultar);
     if (res && res.success) {
-      setCafeteriaHistorial(res);
+      setCafeteriaHistorial(normalizarHistorial(res));
     }
   };
 
@@ -338,14 +392,22 @@ const ConsultaPadres = () => {
 
       const res = await reportarRecargaYape({
         dni: data.estudiante.dni,
+        estudiante: data.estudiante.nombre,
         nombres: data.estudiante.nombre,
         grado: data.estudiante.grado,
+        nivel: data.estudiante.nivel || '',
         monto: montoNum,
         codigoOperacion: codigoOpYape.trim(),
+        numOperacion: codigoOpYape.trim(),
         telefonoOrigen: celularYape.trim(),
         comprobanteBase64,
         comprobanteNombre,
         comprobanteMime,
+        comprobante: comprobanteBase64 ? {
+          base64: comprobanteBase64,
+          nombre: comprobanteNombre,
+          tipo: comprobanteMime
+        } : null,
         registradoPor: 'Padre de Familia (Portal)'
       });
 
@@ -513,9 +575,9 @@ const ConsultaPadres = () => {
               >
                 <span>🍽️</span>
                 <span>Cafetería<span className="hidden sm:inline"> y Lonchera</span></span>
-                {cafeteriaHistorial?.saldo?.saldoActual !== undefined && (
+                {(cafeteriaHistorial?.saldoActual !== undefined || cafeteriaHistorial?.saldo?.saldoActual !== undefined) && (
                   <span className="rounded-full bg-amber-100 text-amber-800 border border-amber-300 text-[10px] font-black px-1.5 py-0.2">
-                    S/ {Number(cafeteriaHistorial.saldo.saldoActual).toFixed(2)}
+                    S/ {Number(cafeteriaHistorial.saldoActual ?? cafeteriaHistorial.saldo?.saldoActual ?? 0).toFixed(2)}
                   </span>
                 )}
               </button>
@@ -952,7 +1014,7 @@ const ConsultaPadres = () => {
                         <span>IEP Millenium</span>
                       </div>
                       <div className="mt-2 text-4xl sm:text-5xl font-black font-mono tracking-tight drop-shadow-sm">
-                        S/ {Number(cafeteriaHistorial?.saldo?.saldoActual || 0).toFixed(2)}
+                        S/ {Number(cafeteriaHistorial?.saldoActual ?? cafeteriaHistorial?.saldo?.saldoActual ?? 0).toFixed(2)}
                       </div>
                       <p className="text-amber-100 text-xs mt-1">
                         Saldo disponible para consumos en cafetería y pedidos de lonchera.
@@ -983,13 +1045,13 @@ const ConsultaPadres = () => {
                     <div className="bg-black/10 rounded-xl p-2.5 backdrop-blur-sm">
                       <span className="text-amber-200 block text-[10px] font-bold uppercase">Total Recargado</span>
                       <strong className="text-white text-sm font-mono">
-                        S/ {Number(cafeteriaHistorial?.saldo?.totalRecargado || 0).toFixed(2)}
+                        S/ {Number(cafeteriaHistorial?.totalRecargado ?? cafeteriaHistorial?.saldo?.totalRecargado ?? 0).toFixed(2)}
                       </strong>
                     </div>
                     <div className="bg-black/10 rounded-xl p-2.5 backdrop-blur-sm">
                       <span className="text-amber-200 block text-[10px] font-bold uppercase">Total Consumido</span>
                       <strong className="text-white text-sm font-mono">
-                        S/ {Number(cafeteriaHistorial?.saldo?.totalConsumido || 0).toFixed(2)}
+                        S/ {Number(cafeteriaHistorial?.totalConsumido ?? cafeteriaHistorial?.saldo?.totalConsumido ?? 0).toFixed(2)}
                       </strong>
                     </div>
                   </div>
@@ -1217,7 +1279,7 @@ const ConsultaPadres = () => {
 
                     {/* Resumen de Saldo en Billetera vs Costo del Pedido */}
                     {(() => {
-                      const saldoActual = Number(cafeteriaHistorial?.saldo?.saldoActual || 0);
+                      const saldoActual = Number(cafeteriaHistorial?.saldoActual ?? cafeteriaHistorial?.saldo?.saldoActual ?? 0);
                       const saldoInsuficiente = saldoActual < totalCarritoPadre;
                       const faltante = Number((totalCarritoPadre - saldoActual).toFixed(2));
 
@@ -1292,12 +1354,13 @@ const ConsultaPadres = () => {
                         </span>
                       </div>
 
-                      {Number(cafeteriaHistorial?.saldo?.saldoActual || 0) < totalCarritoPadre ? (
+                      {Number(cafeteriaHistorial?.saldoActual ?? cafeteriaHistorial?.saldo?.saldoActual ?? 0) < totalCarritoPadre ? (
                         <button
                           type="button"
                           onClick={() => {
-                            const faltante = (totalCarritoPadre - Number(cafeteriaHistorial?.saldo?.saldoActual || 0)).toFixed(2);
-                            showCafeteriaToast(`Saldo insuficiente. Tu saldo es S/ ${Number(cafeteriaHistorial?.saldo?.saldoActual || 0).toFixed(2)} y el pedido suma S/ ${totalCarritoPadre.toFixed(2)}. Te faltan S/ ${faltante}. Por favor recarga por Yape.`, 'error');
+                            const saldoVal = Number(cafeteriaHistorial?.saldoActual ?? cafeteriaHistorial?.saldo?.saldoActual ?? 0);
+                            const faltante = (totalCarritoPadre - saldoVal).toFixed(2);
+                            showCafeteriaToast(`Saldo insuficiente. Tu saldo es S/ ${saldoVal.toFixed(2)} y el pedido suma S/ ${totalCarritoPadre.toFixed(2)}. Te faltan S/ ${faltante}. Por favor recarga por Yape.`, 'error');
                             setMontoYape(faltante);
                             setModalRecargaYape(true);
                           }}
@@ -1411,22 +1474,33 @@ const ConsultaPadres = () => {
                     <div className="space-y-2.5">
                       {cafeteriaHistorial && cafeteriaHistorial.recargas && cafeteriaHistorial.recargas.length > 0 ? (
                         cafeteriaHistorial.recargas.map((r, i) => (
-                          <div key={i} className="p-3 bg-gray-50 rounded-xl border border-gray-200 flex items-center justify-between gap-3 text-xs">
+                          <div key={i} className="p-3 bg-gray-50 rounded-xl border border-gray-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
                             <div className="space-y-0.5">
                               <div className="flex items-center gap-2">
                                 <span className="font-bold text-gray-900">Recarga por Yape</span>
                                 <span className={`text-[10px] font-black px-2 py-0.5 rounded-full border ${
-                                  r.estado === 'APROBADA'
+                                  (r.estadoUpper || r.estado || '').toUpperCase() === 'APROBADA'
                                     ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
-                                    : r.estado === 'PENDIENTE'
+                                    : (r.estadoUpper || r.estado || '').toUpperCase() === 'PENDIENTE'
                                     ? 'bg-amber-100 text-amber-800 border-amber-300'
                                     : 'bg-rose-100 text-rose-800 border-rose-300'
                                 }`}>
                                   {r.estado}
                                 </span>
                               </div>
-                              <div className="text-[11px] text-gray-500">
-                                📅 {r.fecha} {r.hora || ''} · Cód. Op: <span className="font-mono font-bold text-gray-700">{r.codigoOperacion || 'N/A'}</span>
+                              <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                                <span className="text-[11px] text-gray-500">
+                                  📅 {r.fecha} {limpiarHoraStr(r.hora)} · Cód. Op: <span className="font-mono font-bold text-gray-700">{r.codigoOperacion || r.numOperacion || 'N/A'}</span>
+                                </span>
+                                {(r.comprobanteUrl || r.urlComprobante) && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setModalBanner(r.comprobanteUrl || r.urlComprobante)}
+                                    className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 px-2 py-0.5 rounded-md border border-amber-200 transition-colors cursor-pointer"
+                                  >
+                                    <span>📄 Ver Comprobante</span>
+                                  </button>
+                                )}
                               </div>
                               {r.motivoRechazo && (
                                 <div className="text-[11px] text-rose-600 font-semibold mt-1">
@@ -1434,7 +1508,7 @@ const ConsultaPadres = () => {
                                 </div>
                               )}
                             </div>
-                            <div className="text-right">
+                            <div className="text-left sm:text-right">
                               <span className="font-black font-mono text-sm text-emerald-600">
                                 + S/ {Number(r.monto || 0).toFixed(2)}
                               </span>
@@ -1701,9 +1775,9 @@ const ConsultaPadres = () => {
                 <span className="text-amber-900 font-mono text-base">S/ {totalCarritoPadre.toFixed(2)}</span>
               </div>
               <div className="flex justify-between items-center text-[11px] text-gray-500 pt-1 border-t border-amber-200/60">
-                <span>Saldo en billetera: S/ {Number(cafeteriaHistorial?.saldo?.saldoActual || 0).toFixed(2)}</span>
+                <span>Saldo en billetera: S/ {Number(cafeteriaHistorial?.saldoActual ?? cafeteriaHistorial?.saldo?.saldoActual ?? 0).toFixed(2)}</span>
                 <span className="text-emerald-700 font-bold">
-                  Quedará: S/ {(Number(cafeteriaHistorial?.saldo?.saldoActual || 0) - totalCarritoPadre).toFixed(2)}
+                  Quedará: S/ {(Number(cafeteriaHistorial?.saldoActual ?? cafeteriaHistorial?.saldo?.saldoActual ?? 0) - totalCarritoPadre).toFixed(2)}
                 </span>
               </div>
             </div>
