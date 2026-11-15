@@ -32,11 +32,14 @@ Sistema web integral desarrollado a medida para la **IEP MILLENIUM** (Bagua - Ca
 * **Historial Integral de 3 Vías:** Pestañas separadas para seguimiento de **Consumos**, **Recargas** (Pendiente / Aprobada / Rechazada) y **Pedidos**.
 
 ### 4. 🍽️ Cafetería y Restaurante "Las Palmeras" (`/cafeteria`)
-* **Punto de Venta Rápido (POS):**
+* **Punto de Venta Rápido (POS) y Despacho Inteligente de Loncheras:**
+  * **Detección Automática de Pedidos de Lonchera:** Al escanear el carnet QR de un alumno (o seleccionarlo), el POS identifica si tiene pedidos hechos por su padre para hoy, mostrando los productos, turno e indicación de pago ya realizado.
+  * **Entrega en 1 Clic:** Botón directo `[ ✅ Entregar Lonchera ]` en la tarjeta y en el ticket, marcando el pedido como `Entregado` sin cobrarle doble al alumno.
   * Búsqueda ágil de alumnos por **DNI** o por **Nombre y Apellidos**.
   * Escáner QR de carnet estudiantil incorporado en la pantalla de cobro.
   * Múltiples modalidades de cobro: **Saldo Alumno (Billetera)**, **Efectivo** (con cálculo automático de vuelto en modal de alta visibilidad) y **Yape en Caja**.
 * **Comandas y Pantalla de Cocina:**
+  * Escáner QR y buscador incorporado para ubicar y despachar pedidos al instante.
   * Visualización organizada de pedidos del día con filtros por turno (**Recreo** / **Almuerzo**) y estado.
   * Flujo de estados: `Pendiente` ➔ `En Preparación` ➔ `Listo para Entrega` ➔ `Entregado`.
   * **Anulación con Reembolso Automático:** Botón `[ 🗑️ ]` para cancelar pedidos erróneos con devolución automática a la billetera del estudiante y descarte del arqueo de ventas.

@@ -102,6 +102,9 @@ export default function CafeteriaAdmin() {
   const [filtroTurnoPedido, setFiltroTurnoPedido] = useState('TODOS');
   const [filtroEstadoPedido, setFiltroEstadoPedido] = useState('TODOS');
   const [fechaPedidos, setFechaPedidos] = useState(getFechaHoyISO);
+  const [entregandoPedidoId, setEntregandoPedidoId] = useState(null);
+  const [filtroBusquedaPedido, setFiltroBusquedaPedido] = useState('');
+  const [mostrarEscanerPedidos, setMostrarEscanerPedidos] = useState(false);
 
   // Estados de Recargas Yape
   const [recargas, setRecargas] = useState([]);
@@ -255,12 +258,10 @@ export default function CafeteriaAdmin() {
   }, [fechaPedidos]);
 
   useEffect(() => {
-    if (tabActiva === 'pedidos') {
-      cargarPedidos();
-      const interval = setInterval(cargarPedidos, 15000); // Auto-refresco en cocina cada 15s
-      return () => clearInterval(interval);
-    }
-  }, [tabActiva, cargarPedidos]);
+    cargarPedidos();
+    const interval = setInterval(cargarPedidos, 15000); // Auto-refresco en caja y cocina cada 15s
+    return () => clearInterval(interval);
+  }, [cargarPedidos]);
 
   // Carga de recargas Yape
   const cargarRecargas = useCallback(async () => {
@@ -354,7 +355,60 @@ export default function CafeteriaAdmin() {
     });
     setBusquedaEstudiante('');
     setMostrarEscanerPOS(false);
+    cargarPedidos(); // Refrescar comandas al instante para detectar si tiene lonchera de hoy
   };
+
+  // Pedidos activos del estudiante seleccionado (para hoy o pendientes)
+  const pedidosPendientesEstudiante = useMemo(() => {
+    if (!estudianteSeleccionado || !Array.isArray(pedidos)) return [];
+    const dniEst = String(estudianteSeleccionado.dni || '').trim();
+    if (!dniEst) return [];
+
+    const hoyISO = getFechaHoyISO();
+    const hoyNorm = normalizarFecha(hoyISO);
+
+    return pedidos.filter(p => {
+      const dniP = String(p.dni || '').trim();
+      if (dniP !== dniEst) return false;
+
+      const estado = String(p.estado || '').toUpperCase();
+      if (estado === 'ENTREGADO') return false;
+
+      const fEnt = p.fechaEntregaISO || p.fechaEntrega || p.fechaRegistro || p.fecha;
+      if (fEnt) {
+        const fEntNorm = normalizarFecha(fEnt);
+        const fEntISO = String(fEnt).trim();
+        return fEntNorm === hoyNorm || fEntISO.includes(hoyISO) || fEntNorm === '';
+      }
+      return true;
+    });
+  }, [estudianteSeleccionado, pedidos]);
+
+  // Pedidos ya entregados hoy al estudiante seleccionado
+  const pedidosEntregadosHoyEstudiante = useMemo(() => {
+    if (!estudianteSeleccionado || !Array.isArray(pedidos)) return [];
+    const dniEst = String(estudianteSeleccionado.dni || '').trim();
+    if (!dniEst) return [];
+
+    const hoyISO = getFechaHoyISO();
+    const hoyNorm = normalizarFecha(hoyISO);
+
+    return pedidos.filter(p => {
+      const dniP = String(p.dni || '').trim();
+      if (dniP !== dniEst) return false;
+
+      const estado = String(p.estado || '').toUpperCase();
+      if (estado !== 'ENTREGADO') return false;
+
+      const fEnt = p.fechaEntregaISO || p.fechaEntrega || p.fechaRegistro || p.fecha;
+      if (fEnt) {
+        const fEntNorm = normalizarFecha(fEnt);
+        const fEntISO = String(fEnt).trim();
+        return fEntNorm === hoyNorm || fEntISO.includes(hoyISO);
+      }
+      return true;
+    });
+  }, [estudianteSeleccionado, pedidos]);
 
   // Manejador de escaneo QR en POS
   const handleScanQR = (code) => {
@@ -620,6 +674,29 @@ export default function CafeteriaAdmin() {
       }
     } catch (err) {
       showToast('Error: ' + err.message, 'error');
+    }
+  };
+
+  // Entregar lonchera / comanda directamente desde POS o Comandas con sonido y confirmación en tiempo real
+  const handleEntregarPedidoDirecto = async (idPedido) => {
+    if (!idPedido) return;
+    setEntregandoPedidoId(idPedido);
+    try {
+      const res = await cambiarEstadoPedido(idPedido, 'ENTREGADO', atendidoPor);
+      if (res && res.success) {
+        playSound('success');
+        showToast('¡Lonchera entregada con éxito! Se marcó como ENTREGADO en tiempo real.', 'success');
+        await cargarPedidos();
+        await cargarDatosBase();
+      } else {
+        playSound('error');
+        showToast(res.message || 'Error al entregar lonchera', 'error');
+      }
+    } catch (err) {
+      playSound('error');
+      showToast('Error de conexión: ' + err.message, 'error');
+    } finally {
+      setEntregandoPedidoId(null);
     }
   };
 
@@ -1043,7 +1120,7 @@ export default function CafeteriaAdmin() {
                       </div>
                       <button
                         onClick={() => setEstudianteSeleccionado(null)}
-                        className="text-slate-500 hover:text-slate-300 text-xs p-2 rounded-lg hover:bg-slate-800"
+                        className="text-slate-500 hover:text-slate-300 text-xs p-2 rounded-lg hover:bg-slate-800 cursor-pointer"
                         title="Quitar estudiante"
                       >
                         ✕
@@ -1053,6 +1130,84 @@ export default function CafeteriaAdmin() {
                 ) : (
                   <div className="mt-3 text-center py-2 text-xs text-amber-400/80 bg-amber-500/5 rounded-lg border border-amber-500/10">
                     💡 Selecciona o escanea a un estudiante para consultar su saldo y cargar el consumo a su cuenta.
+                  </div>
+                )}
+
+                {/* ======================================================== */}
+                {/* SECCIÓN INTELIGENTE: PEDIDOS / LONCHERA POR ENTREGAR     */}
+                {/* ======================================================== */}
+                {estudianteSeleccionado && pedidosPendientesEstudiante.length > 0 && (
+                  <div className="mt-3 space-y-2 animate-in fade-in slide-in-from-top-2">
+                    {pedidosPendientesEstudiante.map(ped => (
+                      <div
+                        key={ped.idPedido || ped.id}
+                        className="bg-gradient-to-r from-emerald-950/90 via-slate-900 to-emerald-950/90 border-2 border-emerald-500 rounded-2xl p-4 shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-4 ring-2 ring-emerald-500/20"
+                      >
+                        <div className="space-y-1.5 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-2xl animate-bounce">🥪</span>
+                            <span className="bg-emerald-500 text-slate-950 font-black text-xs px-2.5 py-0.5 rounded-full uppercase tracking-wider shadow-sm">
+                              ¡Lonchera Programada para Hoy!
+                            </span>
+                            <span className="bg-amber-500/20 text-amber-300 border border-amber-500/40 text-xs font-bold px-2 py-0.5 rounded-lg">
+                              Turno: {ped.turnoEntrega || ped.turno || 'Recreo'}
+                            </span>
+                            <span className="text-emerald-300 font-mono text-xs font-bold bg-emerald-900/50 px-2 py-0.5 rounded-lg border border-emerald-700/50">
+                              ✓ Pagado con Saldo (S/ {Number(ped.total || 0).toFixed(2)})
+                            </span>
+                          </div>
+
+                          <div className="text-base font-extrabold text-white">
+                            {ped.detalle || (ped.items && ped.items.map(it => `${it.cantidad}x ${it.nombre}`).join(', '))}
+                          </div>
+
+                          {(ped.notas || ped.notaPadre || ped.indicaciones) && (
+                            <div className="text-xs text-amber-300 bg-amber-950/40 border border-amber-800/40 px-2.5 py-1 rounded-lg inline-flex items-center gap-1.5 font-medium">
+                              <span>📝 Indicación especial:</span>
+                              <span className="font-bold">{ped.notas || ped.notaPadre || ped.indicaciones}</span>
+                            </div>
+                          )}
+
+                          <div className="text-[11px] text-slate-400">
+                            Comanda: <span className="font-mono text-slate-300 font-semibold">{ped.idPedido || ped.id}</span> • Estado: <span className="text-amber-400 font-bold uppercase">{ped.estado}</span>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                          <button
+                            type="button"
+                            disabled={entregandoPedidoId === (ped.idPedido || ped.id)}
+                            onClick={() => handleEntregarPedidoDirecto(ped.idPedido || ped.id)}
+                            className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black px-6 py-3 rounded-xl text-sm flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/30 transition-all cursor-pointer whitespace-nowrap active:scale-95 disabled:opacity-50"
+                          >
+                            {entregandoPedidoId === (ped.idPedido || ped.id) ? (
+                              <>
+                                <span className="animate-spin">⏳</span>
+                                <span>Entregando...</span>
+                              </>
+                            ) : (
+                              <>
+                                <span>✅</span>
+                                <span>Entregar Lonchera</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Aviso si ya se le entregó lonchera hoy */}
+                {estudianteSeleccionado && pedidosPendientesEstudiante.length === 0 && pedidosEntregadosHoyEstudiante.length > 0 && (
+                  <div className="mt-2.5 p-3 bg-slate-950/90 border border-emerald-900/50 rounded-xl text-xs text-emerald-400 flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <span>✓</span>
+                      <span>
+                        Este alumno ya recibió su lonchera de hoy: <strong>{pedidosEntregadosHoyEstudiante[0].detalle}</strong>
+                      </span>
+                    </div>
+                    <span className="text-[10px] text-slate-500 uppercase font-bold">Entregado</span>
                   </div>
                 )}
               </div>
@@ -1517,37 +1672,74 @@ export default function CafeteriaAdmin() {
                     </div>
                   )}
 
-                  {/* Botón de Cobro Final */}
-                  <button
-                    onClick={handleCobrarVenta}
-                    disabled={procesandoVenta || carrito.length === 0 || dineroInsuficiente}
-                    className={`w-full font-black py-3 rounded-xl shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all text-sm cursor-pointer ${
-                      metodoPago === 'EFECTIVO'
-                        ? 'bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-slate-950 shadow-emerald-500/20'
-                        : metodoPago === 'YAPE_DIRECTO'
-                        ? 'bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-400 hover:to-purple-500 text-white shadow-purple-500/20'
-                        : 'bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 shadow-amber-500/20'
-                    }`}
-                  >
-                    {procesandoVenta ? (
-                      <span className="animate-pulse">Procesando Venta...</span>
-                    ) : dineroInsuficiente ? (
-                      <span>⚠️ Faltan S/ {faltanteEfectivo.toFixed(2)}</span>
-                    ) : (
-                      <>
-                        <span>{metodoPago === 'EFECTIVO' ? '💵' : metodoPago === 'YAPE_DIRECTO' ? '📱' : '⚡'}</span>
-                        <span>
-                          {metodoPago === 'EFECTIVO'
-                            ? vueltoEfectivo > 0
-                              ? `Cobrar Efectivo (Vuelto: S/ ${vueltoEfectivo.toFixed(2)})`
-                              : `Cobrar S/ ${totalCarrito.toFixed(2)} en Efectivo`
-                            : metodoPago === 'YAPE_DIRECTO'
-                            ? `Cobrar S/ ${totalCarrito.toFixed(2)} por Yape`
-                            : `Cobrar con Saldo Alumno (S/ ${totalCarrito.toFixed(2)})`}
-                        </span>
-                      </>
-                    )}
-                  </button>
+                  {/* Si el estudiante tiene pedidos pendientes para entregar, avisar en el ticket */}
+                  {pedidosPendientesEstudiante.length > 0 && totalCarrito === 0 && (
+                    <div className="bg-emerald-950/50 border border-emerald-500/40 p-3 rounded-xl text-xs text-emerald-300 space-y-1 animate-in fade-in">
+                      <div className="font-extrabold flex items-center gap-1.5 text-white">
+                        <span>🥪</span>
+                        <span>Lonchera lista para entrega:</span>
+                      </div>
+                      <p className="text-slate-200 font-medium">
+                        {pedidosPendientesEstudiante[0].detalle || (pedidosPendientesEstudiante[0].items && pedidosPendientesEstudiante[0].items.map(it => `${it.cantidad}x ${it.nombre}`).join(', '))}
+                      </p>
+                      <p className="text-[10px] text-emerald-400">
+                        ✓ Ya fue pagado por el padre desde el portal (S/ {Number(pedidosPendientesEstudiante[0].total || 0).toFixed(2)}).
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Botón de Acción Principal: Cobrar Venta O Entregar Lonchera Programada */}
+                  {totalCarrito === 0 && pedidosPendientesEstudiante.length > 0 ? (
+                    <button
+                      type="button"
+                      disabled={entregandoPedidoId === (pedidosPendientesEstudiante[0].idPedido || pedidosPendientesEstudiante[0].id)}
+                      onClick={() => handleEntregarPedidoDirecto(pedidosPendientesEstudiante[0].idPedido || pedidosPendientesEstudiante[0].id)}
+                      className="w-full font-black py-3.5 rounded-xl shadow-lg bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-slate-950 shadow-emerald-500/30 flex items-center justify-center gap-2 transition-all text-sm cursor-pointer active:scale-98 animate-pulse"
+                    >
+                      {entregandoPedidoId === (pedidosPendientesEstudiante[0].idPedido || pedidosPendientesEstudiante[0].id) ? (
+                        <>
+                          <span className="animate-spin">⏳</span>
+                          <span>Entregando Lonchera...</span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="text-lg">✅</span>
+                          <span>Entregar Lonchera Programada</span>
+                        </>
+                      )}
+                    </button>
+                  ) : (
+                    <button
+                      onClick={handleCobrarVenta}
+                      disabled={procesandoVenta || carrito.length === 0 || dineroInsuficiente}
+                      className={`w-full font-black py-3 rounded-xl shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all text-sm cursor-pointer ${
+                        metodoPago === 'EFECTIVO'
+                          ? 'bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-slate-950 shadow-emerald-500/20'
+                          : metodoPago === 'YAPE_DIRECTO'
+                          ? 'bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-400 hover:to-purple-500 text-white shadow-purple-500/20'
+                          : 'bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 shadow-amber-500/20'
+                      }`}
+                    >
+                      {procesandoVenta ? (
+                        <span className="animate-pulse">Procesando Venta...</span>
+                      ) : dineroInsuficiente ? (
+                        <span>⚠️ Faltan S/ {faltanteEfectivo.toFixed(2)}</span>
+                      ) : (
+                        <>
+                          <span>{metodoPago === 'EFECTIVO' ? '💵' : metodoPago === 'YAPE_DIRECTO' ? '📱' : '⚡'}</span>
+                          <span>
+                            {metodoPago === 'EFECTIVO'
+                              ? vueltoEfectivo > 0
+                                ? `Cobrar Efectivo (Vuelto: S/ ${vueltoEfectivo.toFixed(2)})`
+                                : `Cobrar S/ ${totalCarrito.toFixed(2)} en Efectivo`
+                              : metodoPago === 'YAPE_DIRECTO'
+                              ? `Cobrar S/ ${totalCarrito.toFixed(2)} por Yape`
+                              : `Cobrar con Saldo Alumno (S/ ${totalCarrito.toFixed(2)})`}
+                          </span>
+                        </>
+                      )}
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
@@ -1619,20 +1811,74 @@ export default function CafeteriaAdmin() {
                     <option value="ENTREGADO">Entregados</option>
                   </select>
                 </div>
+
+                <div>
+                  <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Buscar Alumno / DNI:</label>
+                  <input
+                    type="text"
+                    value={filtroBusquedaPedido}
+                    onChange={(e) => setFiltroBusquedaPedido(e.target.value)}
+                    placeholder="DNI o Nombre..."
+                    className="bg-slate-950 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500 w-36 sm:w-44"
+                  />
+                </div>
               </div>
 
-              <button
-                onClick={cargarPedidos}
-                className="bg-slate-800 hover:bg-slate-700 text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 self-start md:self-auto shadow-sm"
-              >
-                <span>🔄</span>
-                <span>Actualizar Comandas</span>
-              </button>
+              <div className="flex items-center gap-2 self-start md:self-auto flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => setMostrarEscanerPedidos(prev => !prev)}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all cursor-pointer ${
+                    mostrarEscanerPedidos ? 'bg-amber-500 text-slate-950' : 'bg-blue-600 hover:bg-blue-500 text-white'
+                  }`}
+                  title="Escanear carnet del alumno para ubicar y entregar su pedido al instante"
+                >
+                  <span>📷</span>
+                  <span>{mostrarEscanerPedidos ? 'Ocultar Escáner' : 'Escanear QR'}</span>
+                </button>
+
+                <button
+                  onClick={cargarPedidos}
+                  className="bg-slate-800 hover:bg-slate-700 text-white px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm cursor-pointer"
+                >
+                  <span>🔄</span>
+                  <span>Actualizar</span>
+                </button>
+              </div>
             </div>
+
+            {/* Escáner de Carnet QR en pantalla de Comandas */}
+            {mostrarEscanerPedidos && (
+              <div className="bg-slate-950 border border-slate-800 rounded-2xl p-4 text-center max-w-sm mx-auto shadow-2xl animate-in fade-in">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                    <span>📷</span>
+                    <span>Apunta el carnet del alumno:</span>
+                  </span>
+                  <button onClick={() => setMostrarEscanerPedidos(false)} className="text-slate-400 hover:text-white text-xs p-1">✕</button>
+                </div>
+                <div className="rounded-xl overflow-hidden border border-slate-700">
+                  <QRScanner onScan={(code) => {
+                    if (!code) return;
+                    setFiltroBusquedaPedido(code.trim());
+                    setMostrarEscanerPedidos(false);
+                    playSound('success');
+                    showToast(`Filtrando comanda para DNI / Código: ${code.trim()}`);
+                  }} />
+                </div>
+              </div>
+            )}
 
             {/* Listado de Comandas tipo Cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {pedidos
+                .filter(p => {
+                  if (!filtroBusquedaPedido.trim()) return true;
+                  const q = filtroBusquedaPedido.trim().toLowerCase();
+                  const d = String(p.dni || '').toLowerCase();
+                  const nom = String(p.estudiante || p.nombres || p.nombre || '').toLowerCase();
+                  return d.includes(q) || nom.includes(q);
+                })
                 .filter(p => {
                   if (filtroTurnoPedido === 'TODOS') return true;
                   const t = String(p.turnoEntrega || p.turno || '').toUpperCase();

@@ -165,8 +165,14 @@ Almacena cada transacción completada en el POS o por comanda entregada, con el 
   3. *Pedidos:* Seguimiento del estado de preparación de la lonchera.
 
 ### 4.3. Cafetería POS y Administración
+* **Despacho Inteligente de Loncheras al Escanear QR:**
+  * Al escanear el carnet QR de un alumno en la Caja Rápida (POS), el sistema detecta de forma automática si tiene una lonchera o pedido programado para hoy (`Cafeteria_Pedidos`).
+  * Despliega una tarjeta destacada con el detalle completo del pedido (productos, turno, notas especiales e indicación de pago ya realizado por el padre).
+  * Habilita un botón de acción rápida `[ ✅ Entregar Lonchera ]` tanto en la tarjeta del estudiante como en el botón principal del ticket de venta (evitando el estado deshabilitado de S/ 0.00).
+  * Con 1 solo clic se marca como `ENTREGADO` en la base de datos, suena el aviso sonoro y se notifica al portal del padre, evitando dobles cobros y agilizando la atención en el recreo.
 * **Búsqueda Inteligente:** Búsqueda en vivo en la caja por **DNI** o por **Nombre y Apellidos** (insensible a acentos y mayúsculas).
 * **Cobro en Efectivo:** Entrada de monto recibido con cálculo de vuelto y ventana modal gigante para evitar errores humanos en caja.
+* **Escanear QR en Comandas de Cocina:** Incorporación de lector QR y buscador en la pestaña de Comandas para ubicar y despachar pedidos directamente desde la cocina.
 * **Anulación de Pedidos con Reembolso:**
   * Al pulsar el botón `[ 🗑️ ]` en cualquier comanda, se solicita confirmación.
   * Si el pedido fue pagado con la billetera del alumno, **se reembolsa el importe de inmediato** a `Cafeteria_Saldos`.
@@ -205,6 +211,13 @@ Almacena cada transacción completada en el POS o por comanda entregada, con el 
 ---
 
 ## 6. Control de Versiones y Registro Histórico de Cambios (Changelog)
+
+### [v2.5.1] - 15/11/2026
+* **Módulo Cafetería (Despacho Inteligente en POS y Comandas):**
+  * Al escanear el carnet QR de un estudiante en la Caja Rápida (POS), el sistema detecta de inmediato sus pedidos de lonchera programados para hoy por el padre.
+  * Muestra tarjeta informativa con los platos solicitados, turno de recreo/almuerzo e indicación de que ya fueron pagados previamente.
+  * Habilita botón de entrega directa `[ ✅ Entregar Lonchera ]` tanto en la cabecera como en el botón principal del ticket de venta, agilizando la atención a 1 solo clic sin recargos.
+  * Incorporación de lector QR y buscador por DNI/nombre en la pantalla de **Comandas de Cocina** para despacho directo desde mostrador o cocina.
 
 ### [v2.5.0] - 15/11/2026
 * **Módulo Cafetería:** Se implementó la anulación de pedidos con botón de papelera `[ 🗑️ ]` en la vista de comandas, con reembolso automático a la billetera digital y descarte en la hoja de ventas.
