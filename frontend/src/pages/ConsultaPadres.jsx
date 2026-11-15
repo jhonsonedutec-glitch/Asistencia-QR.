@@ -49,8 +49,36 @@ const normalizarHistorial = (res) => {
     };
   }) : [];
 
-  const consumos = Array.isArray(res.consumos) ? res.consumos : (Array.isArray(res.ventas) ? res.ventas : []);
-  const pedidos = Array.isArray(res.pedidos) ? res.pedidos : [];
+  const consumosRaw = Array.isArray(res.consumos) ? res.consumos : (Array.isArray(res.ventas) ? res.ventas : []);
+  const pedidos = Array.isArray(res.pedidos) ? res.pedidos.map(p => ({
+    ...p,
+    idPedido: p.idPedido || p.id,
+    turnoEntrega: p.turnoEntrega || p.turno || 'Recreo',
+    estado: String(p.estado || 'Pendiente'),
+    estadoUpper: String(p.estadoUpper || p.estado || 'PENDIENTE').toUpperCase()
+  })) : [];
+
+  // Trazabilidad inmediata: si hay pedidos de lonchera registrados, asegurar que figuren en consumos
+  const consumosIds = new Set(consumosRaw.map(c => String(c.id || '').trim()));
+  const consumosExtra = [];
+  pedidos.forEach(p => {
+    const pId = String(p.idPedido || p.id || '').trim();
+    if (pId && !consumosIds.has(pId)) {
+      consumosExtra.push({
+        id: pId,
+        fechaHora: (p.fechaEntrega || p.fecha || '') + ' (' + (p.turnoEntrega || 'Recreo') + ')',
+        fecha: p.fechaEntrega || p.fecha || '',
+        hora: p.turnoEntrega || 'Recreo',
+        detalle: `[Pedido Lonchera - ${p.turnoEntrega || 'Recreo'}] ${p.detalle || ''}`,
+        total: Number(p.total || 0),
+        saldoRestante: 0,
+        metodo: 'Saldo Billetera (Pedido)',
+        metodoPago: 'Saldo Billetera (Pedido)'
+      });
+    }
+  });
+
+  const consumos = [...consumosRaw, ...consumosExtra];
 
   return {
     ...res,
@@ -254,6 +282,16 @@ const ConsultaPadres = () => {
       setCafeteriaHistorial(normalizarHistorial(res));
     }
   };
+
+  // Auto-refresco de trazabilidad de billetera y pedidos para padres
+  useEffect(() => {
+    if (pestanaActiva === 'cafeteria' && data?.estudiante?.dni) {
+      const interval = setInterval(() => {
+        recargarDatosCafeteria(data.estudiante.dni);
+      }, 15000);
+      return () => clearInterval(interval);
+    }
+  }, [pestanaActiva, data?.estudiante?.dni]);
 
   // Carrito de compras del padre
   const agregarAlCarritoPadre = (prod) => {
@@ -1436,24 +1474,24 @@ const ConsultaPadres = () => {
                   {/* Sub-Tab 1: Consumos en Cafetería */}
                   {subTabMovimientos === 'consumos' && (
                     <div className="space-y-2.5">
-                      {cafeteriaHistorial && cafeteriaHistorial.ventas && cafeteriaHistorial.ventas.length > 0 ? (
-                        cafeteriaHistorial.ventas.map((v, i) => (
+                      {cafeteriaHistorial && (cafeteriaHistorial.consumos || cafeteriaHistorial.ventas) && (cafeteriaHistorial.consumos || cafeteriaHistorial.ventas).length > 0 ? (
+                        (cafeteriaHistorial.consumos || cafeteriaHistorial.ventas).map((v, i) => (
                           <div key={i} className="p-3 bg-gray-50 rounded-xl border border-gray-200 flex items-center justify-between gap-3 text-xs">
                             <div className="space-y-0.5">
                               <div className="font-bold text-gray-900">
-                                {v.items && v.items.length > 0 
+                                {v.detalle || (v.items && v.items.length > 0 
                                   ? v.items.map(it => `${it.cantidad}x ${it.nombre}`).join(', ') 
-                                  : 'Consumo en Cafetería'}
+                                  : 'Consumo en Cafetería')}
                               </div>
                               <div className="text-[11px] text-gray-500">
-                                📅 {v.fecha} {v.hora || ''} · Método: <span className="font-semibold">{v.metodoPago === 'SALDO_ESTUDIANTE' ? 'Billetera Digital' : v.metodoPago}</span>
+                                📅 {v.fecha} {limpiarHoraStr(v.hora)} · Método: <span className="font-semibold">{v.metodoPago === 'SALDO_ESTUDIANTE' ? 'Billetera Digital' : (v.metodoPago || v.metodo || 'Billetera Digital')}</span>
                               </div>
                             </div>
                             <div className="text-right">
                               <span className="font-black font-mono text-sm text-rose-600 block">
                                 - S/ {Number(v.total || 0).toFixed(2)}
                               </span>
-                              {v.saldoRestante !== undefined && (
+                              {v.saldoRestante !== undefined && v.saldoRestante > 0 && (
                                 <span className="text-[10px] text-gray-400 font-mono">
                                   Quedó: S/ {Number(v.saldoRestante).toFixed(2)}
                                 </span>

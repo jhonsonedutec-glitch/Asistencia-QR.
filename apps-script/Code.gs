@@ -2326,6 +2326,58 @@ function procesarRecargaYape(idRecarga, accion, validadoPor, motivoRechazo) {
 // VENTAS EN CAJA (POS) Y PEDIDOS ANTICIPADOS
 // ------------------------------------------------------------
 
+function normalizarFechaComparacion(f) {
+  if (!f) return '';
+  if (f instanceof Date) {
+    const tz = Session.getScriptTimeZone() || 'America/Lima';
+    return Utilities.formatDate(f, tz, 'yyyy-MM-dd');
+  }
+  const str = String(f).trim();
+  if (str.toUpperCase() === 'TODOS' || str === '') return '';
+  // Si viene en formato dd/MM/yyyy
+  const m1 = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (m1) {
+    const d = m1[1].padStart(2, '0');
+    const m = m1[2].padStart(2, '0');
+    const y = m1[3];
+    return `${y}-${m}-${d}`;
+  }
+  // Si viene en formato yyyy-MM-dd
+  const m2 = str.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (m2) {
+    const y = m2[1];
+    const m = m2[2].padStart(2, '0');
+    const d = m2[3].padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+  return str;
+}
+
+function parseDetalleItems(detalleStr) {
+  if (!detalleStr) return [];
+  const partes = detalleStr.split(',');
+  const items = [];
+  for (let i = 0; i < partes.length; i++) {
+    const lim = partes[i].trim();
+    if (!lim) continue;
+    const match = lim.match(/^(\d+)x\s*(.*)/);
+    if (match) {
+      items.push({
+        cantidad: parseInt(match[1], 10),
+        nombre: match[2].trim(),
+        subtotal: 0
+      });
+    } else {
+      items.push({
+        cantidad: 1,
+        nombre: lim,
+        subtotal: 0
+      });
+    }
+  }
+  return items;
+}
+
 function registrarVentaCaja(data) {
   asegurarHojasCafeteria();
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
@@ -2354,8 +2406,15 @@ function registrarVentaCaja(data) {
     }
   }
 
+  const esSaldo = (
+    metodoPago === 'Saldo' || 
+    metodoPago === 'SALDO_ESTUDIANTE' || 
+    metodoPago === 'Saldo Billetera' ||
+    metodoPago.toUpperCase().includes('SALDO')
+  );
+
   // Cobro con saldo de billetera escolar
-  if (metodoPago === 'Saldo') {
+  if (esSaldo) {
     if (!dni) {
       return { success: false, message: 'Se requiere el DNI del alumno para cobrar con saldo.' };
     }
@@ -2399,6 +2458,8 @@ function registrarVentaCaja(data) {
 
   return {
     success: true,
+    idVenta: idVenta,
+    nuevoSaldo: saldoRestante,
     message: 'Venta registrada correctamente por S/ ' + total.toFixed(2) + '.',
     ticket: {
       idVenta: idVenta,
@@ -2417,13 +2478,14 @@ function registrarPedidoPadre(data) {
   asegurarHojasCafeteria();
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const hojaP = ss.getSheetByName(HOJA_CAFETERIA_PEDIDOS);
+  const hojaV = ss.getSheetByName(HOJA_CAFETERIA_VENTAS);
 
   const dni = String(data.dni || '').trim();
   const items = Array.isArray(data.items) ? data.items : [];
   const total = parseFloat(data.total) || 0;
   const fechaEntrega = String(data.fechaEntrega || '').trim();
   const turnoEntrega = String(data.turnoEntrega || 'Recreo').trim();
-  const notas = String(data.notas || '').trim();
+  const notas = String(data.notas || data.notaPadre || '').trim();
 
   if (!dni || items.length === 0 || total <= 0) {
     return { success: false, message: 'Datos incompletos para procesar el pedido.' };
@@ -2451,10 +2513,22 @@ function registrarPedidoPadre(data) {
   const idPedido = 'PED-' + Utilities.formatDate(ahora, tz, 'yyyyMMdd_HHmmss') + '-' + Math.floor(Math.random() * 900 + 100);
   const detalleStr = items.map(it => `${it.cantidad}x ${it.nombre}`).join(', ');
 
+  // Formatear fecha de entrega consistente
+  let fechaEntReg = fechaEntrega;
+  if (!fechaEntReg) {
+    fechaEntReg = Utilities.formatDate(ahora, tz, 'dd/MM/yyyy');
+  } else {
+    const m = fechaEntReg.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if (m) {
+      fechaEntReg = `${m[3].padStart(2, '0')}/${m[2].padStart(2, '0')}/${m[1]}`;
+    }
+  }
+
+  // 1. Guardar en Hoja de Pedidos para cocina
   hojaP.appendRow([
     idPedido,
     ahoraStr,
-    fechaEntrega || Utilities.formatDate(ahora, tz, 'dd/MM/yyyy'),
+    "'" + fechaEntReg,
     dni,
     e.nombre || '',
     (e.grado ? e.grado + ' ' + (e.nivel || '') : ''),
@@ -2465,6 +2539,24 @@ function registrarPedidoPadre(data) {
     'Saldo Billetera',
     notas
   ]);
+
+  // 2. Guardar en Hoja de Ventas/Consumos para trazabilidad financiera inmediata
+  if (hojaV) {
+    hojaV.appendRow([
+      idPedido,
+      ahoraStr,
+      dni,
+      e.nombre || '',
+      (e.grado ? e.grado + ' ' + (e.nivel || '') : ''),
+      `[Pedido Lonchera - ${turnoEntrega}] ${detalleStr}`,
+      total,
+      itemSaldo.saldo,
+      resDescuento.nuevoSaldo,
+      'Saldo Billetera (Pedido)',
+      'Portal de Padres'
+    ]);
+  }
+
   SpreadsheetApp.flush();
 
   return {
@@ -2479,12 +2571,15 @@ function obtenerPedidosCafeteria(filtroFecha, filtroEstado) {
   asegurarHojasCafeteria();
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const hojaP = ss.getSheetByName(HOJA_CAFETERIA_PEDIDOS);
-  const ultFila = hojaP.getLastRow();
+  const ultFila = hojaP ? hojaP.getLastRow() : 0;
   if (ultFila <= 1) return { success: true, pedidos: [] };
 
   const datos = hojaP.getRange(2, 1, ultFila - 1, 12).getValues();
   const tz = Session.getScriptTimeZone() || 'America/Lima';
   const pedidos = [];
+
+  const filtroFechaNorm = normalizarFechaComparacion(filtroFecha);
+  const filtroEstNorm = String(filtroEstado || 'TODOS').trim().toUpperCase();
 
   for (let i = datos.length - 1; i >= 0; i--) {
     const id = String(datos[i][0] || '').trim();
@@ -2492,24 +2587,45 @@ function obtenerPedidosCafeteria(filtroFecha, filtroEstado) {
 
     const fEnt = datos[i][2];
     const fechaEntStr = fEnt instanceof Date ? Utilities.formatDate(fEnt, tz, 'dd/MM/yyyy') : String(fEnt || '').trim();
-    const estado = String(datos[i][9] || 'Pendiente').trim();
+    const fechaEntNorm = normalizarFechaComparacion(fEnt);
 
-    if (filtroFecha && fechaEntStr !== filtroFecha) continue;
-    if (filtroEstado && filtroEstado !== 'TODOS' && estado.toLowerCase() !== filtroEstado.toLowerCase()) continue;
+    const estadoRaw = String(datos[i][9] || 'Pendiente').trim();
+    const estadoNorm = estadoRaw.toUpperCase();
+
+    // Filtro por fecha (soporta formatos cruzados dd/MM/yyyy y yyyy-MM-dd)
+    if (filtroFechaNorm && fechaEntNorm && fechaEntNorm !== filtroFechaNorm) continue;
+
+    // Filtro por estado
+    if (filtroEstNorm !== 'TODOS' && estadoNorm !== filtroEstNorm) continue;
+
+    const detalleStr = String(datos[i][6] || '').trim();
+    const parsedItems = parseDetalleItems(detalleStr);
+    const turnoRaw = String(datos[i][8] || 'Recreo').trim();
+    const turnoNorm = turnoRaw.toUpperCase();
+    const notasStr = String(datos[i][11] || '').trim();
+    const estudianteNom = String(datos[i][4] || '').trim();
 
     pedidos.push({
       id: id,
+      idPedido: id,
       fechaRegistro: String(datos[i][1] || '').trim(),
       fechaEntrega: fechaEntStr,
+      fechaEntregaISO: fechaEntNorm,
       dni: String(datos[i][3] || '').trim(),
-      estudiante: String(datos[i][4] || '').trim(),
+      estudiante: estudianteNom,
+      nombres: estudianteNom,
+      nombre: estudianteNom,
       grado: String(datos[i][5] || '').trim(),
-      detalle: String(datos[i][6] || '').trim(),
+      detalle: detalleStr,
+      items: parsedItems,
       total: parseFloat(datos[i][7]) || 0,
-      turnoEntrega: String(datos[i][8] || 'Recreo').trim(),
-      estado: estado,
-      metodoPago: String(datos[i][10] || '').trim(),
-      notas: String(datos[i][11] || '').trim()
+      turnoEntrega: turnoNorm,
+      turno: turnoNorm,
+      estado: estadoNorm,
+      estadoRaw: estadoRaw,
+      metodoPago: String(datos[i][10] || 'Saldo Billetera').trim(),
+      notas: notasStr,
+      notaPadre: notasStr
     });
   }
 
@@ -2520,12 +2636,13 @@ function cambiarEstadoPedido(idPedido, nuevoEstado) {
   asegurarHojasCafeteria();
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const hojaP = ss.getSheetByName(HOJA_CAFETERIA_PEDIDOS);
-  const ultFila = hojaP.getLastRow();
+  const ultFila = hojaP ? hojaP.getLastRow() : 0;
   if (ultFila <= 1) return { success: false, message: 'Sin pedidos.' };
 
+  const idBuscado = String(idPedido || '').trim().toLowerCase();
   const ids = hojaP.getRange(2, 1, ultFila - 1, 1).getValues();
   for (let i = 0; i < ids.length; i++) {
-    if (String(ids[i][0]).trim() === idPedido) {
+    if (String(ids[i][0]).trim().toLowerCase() === idBuscado) {
       hojaP.getRange(i + 2, 10).setValue(nuevoEstado || 'Entregado');
       SpreadsheetApp.flush();
       return { success: true, message: 'Estado del pedido actualizado a ' + nuevoEstado + '.' };
@@ -2591,18 +2708,50 @@ function obtenerHistorialEstudianteCafeteria(dni) {
     }
   }
 
-  // 2. Obtener consumos/ventas de este DNI
+  // 2. Obtener pedidos programados de este DNI primero (para trazabilidad cruzada)
+  const hojaP = ss.getSheetByName(HOJA_CAFETERIA_PEDIDOS);
+  const ultP = hojaP ? hojaP.getLastRow() : 0;
+  const pedidos = [];
+  if (ultP > 1) {
+    const datosP = hojaP.getRange(2, 1, ultP - 1, 12).getValues();
+    for (let i = datosP.length - 1; i >= 0; i--) {
+      if (String(datosP[i][3]).trim() === dni) {
+        const f = datosP[i][2];
+        const fStr = f instanceof Date ? Utilities.formatDate(f, tz, 'dd/MM/yyyy') : String(f || '').trim();
+        const turnoStr = String(datosP[i][8] || 'Recreo').trim();
+        const estadoStr = String(datosP[i][9] || 'Pendiente').trim();
+        pedidos.push({
+          id: String(datosP[i][0] || ''),
+          idPedido: String(datosP[i][0] || ''),
+          fechaEntrega: fStr,
+          fecha: fStr,
+          detalle: String(datosP[i][6] || ''),
+          total: parseFloat(datosP[i][7]) || 0,
+          turnoEntrega: turnoStr,
+          turno: turnoStr,
+          estado: estadoStr,
+          estadoUpper: estadoStr.toUpperCase()
+        });
+      }
+    }
+  }
+
+  // 3. Obtener consumos/ventas de este DNI
   const hojaV = ss.getSheetByName(HOJA_CAFETERIA_VENTAS);
   const ultV = hojaV ? hojaV.getLastRow() : 0;
   const consumos = [];
+  const idsVentasRegistradas = {};
+
   if (ultV > 1) {
-    const datosV = hojaV.getRange(2, 1, ultV - 1, 10).getValues();
+    const datosV = hojaV.getRange(2, 1, ultV - 1, 11).getValues();
     for (let i = datosV.length - 1; i >= 0; i--) {
       if (String(datosV[i][2]).trim() === dni) {
+        const idV = String(datosV[i][0] || '').trim();
+        if (idV) idsVentasRegistradas[idV] = true;
         const fhStr = String(datosV[i][1] || '').trim();
         const partesFH = fhStr.split(' ');
         consumos.push({
-          id: String(datosV[i][0] || ''),
+          id: idV,
           fechaHora: fhStr,
           fecha: partesFH[0] || fhStr,
           hora: partesFH[1] || '',
@@ -2616,27 +2765,22 @@ function obtenerHistorialEstudianteCafeteria(dni) {
     }
   }
 
-  // 3. Obtener pedidos programados de este DNI
-  const hojaP = ss.getSheetByName(HOJA_CAFETERIA_PEDIDOS);
-  const ultP = hojaP ? hojaP.getLastRow() : 0;
-  const pedidos = [];
-  if (ultP > 1) {
-    const datosP = hojaP.getRange(2, 1, ultP - 1, 10).getValues();
-    for (let i = datosP.length - 1; i >= 0; i--) {
-      if (String(datosP[i][3]).trim() === dni) {
-        const f = datosP[i][2];
-        const fStr = f instanceof Date ? Utilities.formatDate(f, tz, 'dd/MM/yyyy') : String(f || '').trim();
-        pedidos.push({
-          id: String(datosP[i][0] || ''),
-          fechaEntrega: fStr,
-          fecha: fStr,
-          detalle: String(datosP[i][6] || ''),
-          total: parseFloat(datosP[i][7]) || 0,
-          turnoEntrega: String(datosP[i][8] || 'Recreo'),
-          turno: String(datosP[i][8] || 'Recreo'),
-          estado: String(datosP[i][9] || 'Pendiente')
-        });
-      }
+  // Trazabilidad automática: si hay pedidos de lonchera que aún no están en la hoja de ventas,
+  // agregarlos automáticamente al listado de consumos para que el padre los visualice de inmediato
+  for (let i = 0; i < pedidos.length; i++) {
+    const p = pedidos[i];
+    if (p.id && !idsVentasRegistradas[p.id]) {
+      consumos.unshift({
+        id: p.id,
+        fechaHora: p.fechaEntrega + ' (' + p.turno + ')',
+        fecha: p.fechaEntrega,
+        hora: p.turno,
+        detalle: '[Pedido Lonchera - ' + p.turno + '] ' + p.detalle,
+        total: p.total,
+        saldoRestante: 0,
+        metodo: 'Saldo Billetera (Pedido)',
+        metodoPago: 'Saldo Billetera (Pedido)'
+      });
     }
   }
 

@@ -190,13 +190,34 @@ export default function CafeteriaAdmin() {
   const cargarPedidos = useCallback(async () => {
     const res = await obtenerPedidosCafeteria(fechaPedidos, 'TODOS');
     if (res && res.success && Array.isArray(res.pedidos)) {
-      setPedidos(res.pedidos);
+      const normPed = res.pedidos.map(p => {
+        const idNorm = String(p.idPedido || p.id || '');
+        const nomNorm = p.nombres || p.estudiante || p.nombre || 'Estudiante';
+        const turnoNorm = String(p.turnoEntrega || p.turno || 'RECREO').toUpperCase();
+        const estNorm = String(p.estado || 'PENDIENTE').toUpperCase();
+        return {
+          ...p,
+          idPedido: idNorm,
+          id: idNorm,
+          nombres: nomNorm,
+          estudiante: nomNorm,
+          nombre: nomNorm,
+          turnoEntrega: turnoNorm,
+          turno: turnoNorm,
+          estado: estNorm,
+          notaPadre: p.notaPadre || p.notas || '',
+          notas: p.notas || p.notaPadre || ''
+        };
+      });
+      setPedidos(normPed);
     }
   }, [fechaPedidos]);
 
   useEffect(() => {
     if (tabActiva === 'pedidos') {
       cargarPedidos();
+      const interval = setInterval(cargarPedidos, 15000); // Auto-refresco en cocina cada 15s
+      return () => clearInterval(interval);
     }
   }, [tabActiva, cargarPedidos]);
 
@@ -232,8 +253,18 @@ export default function CafeteriaAdmin() {
   useEffect(() => {
     if (tabActiva === 'recargas') {
       cargarRecargas();
+      const interval = setInterval(cargarRecargas, 15000); // Auto-refresco de recargas cada 15s
+      return () => clearInterval(interval);
     }
   }, [tabActiva, cargarRecargas]);
+
+  // Auto-refresco de saldos en POS para que detecte recargas al instante
+  useEffect(() => {
+    if (tabActiva === 'pos') {
+      const interval = setInterval(cargarDatosBase, 20000); // Cada 20s
+      return () => clearInterval(interval);
+    }
+  }, [tabActiva, cargarDatosBase]);
 
   // Carga de reportes
   const cargarReporte = useCallback(async () => {
@@ -1145,12 +1176,32 @@ export default function CafeteriaAdmin() {
               <div className="flex flex-wrap items-center gap-3">
                 <div>
                   <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Fecha:</label>
-                  <input
-                    type="date"
-                    value={fechaPedidos}
-                    onChange={(e) => setFechaPedidos(e.target.value)}
-                    className="bg-slate-950 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500"
-                  />
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="date"
+                      value={fechaPedidos}
+                      onChange={(e) => setFechaPedidos(e.target.value)}
+                      className="bg-slate-950 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setFechaPedidos(getFechaHoyISO())}
+                      className="bg-slate-800 hover:bg-slate-700 text-amber-300 text-[11px] font-bold px-2.5 py-1.5 rounded-xl border border-slate-700 transition-colors"
+                      title="Ver comandas de hoy"
+                    >
+                      Hoy
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFechaPedidos('')}
+                      className={`text-[11px] font-bold px-2.5 py-1.5 rounded-xl border transition-colors ${
+                        !fechaPedidos ? 'bg-amber-500 text-slate-950 border-amber-400 font-black' : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+                      }`}
+                      title="Ver comandas de todas las fechas"
+                    >
+                      Todas
+                    </button>
+                  </div>
                 </div>
 
                 <div>
@@ -1184,7 +1235,7 @@ export default function CafeteriaAdmin() {
 
               <button
                 onClick={cargarPedidos}
-                className="bg-slate-800 hover:bg-slate-700 text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 self-start md:self-auto"
+                className="bg-slate-800 hover:bg-slate-700 text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 self-start md:self-auto shadow-sm"
               >
                 <span>🔄</span>
                 <span>Actualizar Comandas</span>
@@ -1194,17 +1245,25 @@ export default function CafeteriaAdmin() {
             {/* Listado de Comandas tipo Cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {pedidos
-                .filter(p => filtroTurnoPedido === 'TODOS' || p.turnoEntrega === filtroTurnoPedido)
-                .filter(p => filtroEstadoPedido === 'TODOS' || p.estado === filtroEstadoPedido)
+                .filter(p => {
+                  if (filtroTurnoPedido === 'TODOS') return true;
+                  const t = String(p.turnoEntrega || p.turno || '').toUpperCase();
+                  return t === filtroTurnoPedido.toUpperCase();
+                })
+                .filter(p => {
+                  if (filtroEstadoPedido === 'TODOS') return true;
+                  const e = String(p.estado || '').toUpperCase();
+                  return e === filtroEstadoPedido.toUpperCase();
+                })
                 .map(ped => (
                   <div
-                    key={ped.idPedido}
+                    key={ped.idPedido || ped.id}
                     className={`bg-slate-900 border rounded-2xl p-4 shadow-xl flex flex-col justify-between transition-all ${
-                      ped.estado === 'PENDIENTE'
+                      (ped.estado || '').toUpperCase() === 'PENDIENTE'
                         ? 'border-amber-500/50 bg-amber-500/5'
-                        : ped.estado === 'EN_PREPARACION'
+                        : (ped.estado || '').toUpperCase() === 'EN_PREPARACION'
                         ? 'border-blue-500/50 bg-blue-500/5'
-                        : ped.estado === 'LISTO_ENTREGA'
+                        : (ped.estado || '').toUpperCase() === 'LISTO_ENTREGA'
                         ? 'border-emerald-500/50 bg-emerald-500/5'
                         : 'border-slate-800 opacity-70'
                     }`}
@@ -1213,36 +1272,51 @@ export default function CafeteriaAdmin() {
                       {/* Cabecera del pedido */}
                       <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-3">
                         <div>
-                          <div className="font-black text-white text-base">{ped.nombres}</div>
-                          <div className="text-xs text-slate-400">Grado: <span className="text-slate-300 font-semibold">{ped.grado}</span> | DNI: {ped.dni}</div>
+                          <div className="font-black text-white text-base">{ped.nombres || ped.estudiante || 'Estudiante'}</div>
+                          <div className="text-xs text-slate-400">
+                            Grado: <span className="text-slate-300 font-semibold">{ped.grado || '--'}</span> | DNI: {ped.dni}
+                          </div>
+                          {ped.fechaEntrega && (
+                            <div className="text-[10px] text-amber-400/90 font-mono mt-0.5">
+                              📅 Entrega: {ped.fechaEntrega}
+                            </div>
+                          )}
                         </div>
                         <div className="text-right">
                           <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full border ${
-                            ped.turnoEntrega === 'RECREO'
+                            String(ped.turnoEntrega || ped.turno || '').toUpperCase() === 'RECREO'
                               ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
                               : 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30'
                           }`}>
-                            {ped.turnoEntrega}
+                            {ped.turnoEntrega || ped.turno || 'RECREO'}
                           </span>
                         </div>
                       </div>
 
                       {/* Items del pedido */}
                       <div className="space-y-1.5 mb-3">
-                        {ped.items && ped.items.map((it, idx) => (
-                          <div key={idx} className="flex items-center justify-between text-xs">
-                            <span className="text-slate-300 font-semibold">
-                              <span className="text-amber-400 font-black mr-1">{it.cantidad}x</span> {it.nombre}
-                            </span>
-                            <span className="text-slate-400 font-mono">S/ {Number(it.subtotal || 0).toFixed(2)}</span>
+                        {ped.items && ped.items.length > 0 ? (
+                          ped.items.map((it, idx) => (
+                            <div key={idx} className="flex items-center justify-between text-xs">
+                              <span className="text-slate-300 font-semibold">
+                                <span className="text-amber-400 font-black mr-1">{it.cantidad}x</span> {it.nombre}
+                              </span>
+                              {it.subtotal > 0 && (
+                                <span className="text-slate-400 font-mono">S/ {Number(it.subtotal || 0).toFixed(2)}</span>
+                              )}
+                            </div>
+                          ))
+                        ) : (
+                          <div className="text-xs text-slate-300 font-semibold bg-slate-950 p-2 rounded-lg border border-slate-800">
+                            {ped.detalle}
                           </div>
-                        ))}
+                        )}
                       </div>
 
                       {/* Nota del padre */}
-                      {ped.notaPadre && (
+                      {(ped.notaPadre || ped.notas) && (
                         <div className="p-2 rounded-lg bg-slate-950 border border-slate-800 text-xs text-amber-300/90 italic mb-3">
-                          💬 &quot;{ped.notaPadre}&quot;
+                          💬 &quot;{ped.notaPadre || ped.notas}&quot;
                         </div>
                       )}
                     </div>
@@ -1255,37 +1329,37 @@ export default function CafeteriaAdmin() {
                       </div>
 
                       <div className="flex items-center gap-1.5">
-                        {ped.estado === 'PENDIENTE' && (
+                        {(ped.estado || '').toUpperCase() === 'PENDIENTE' && (
                           <button
-                            onClick={() => handleCambiarEstadoPedido(ped.idPedido, 'EN_PREPARACION')}
-                            className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1"
+                            onClick={() => handleCambiarEstadoPedido(ped.idPedido || ped.id, 'EN_PREPARACION')}
+                            className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 shadow-sm transition-all"
                           >
                             <span>👨‍🍳</span>
                             <span>Preparar</span>
                           </button>
                         )}
 
-                        {ped.estado === 'EN_PREPARACION' && (
+                        {(ped.estado || '').toUpperCase() === 'EN_PREPARACION' && (
                           <button
-                            onClick={() => handleCambiarEstadoPedido(ped.idPedido, 'LISTO_ENTREGA')}
-                            className="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1"
+                            onClick={() => handleCambiarEstadoPedido(ped.idPedido || ped.id, 'LISTO_ENTREGA')}
+                            className="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 shadow-sm transition-all"
                           >
                             <span>🔔</span>
                             <span>Listo</span>
                           </button>
                         )}
 
-                        {ped.estado === 'LISTO_ENTREGA' && (
+                        {(ped.estado || '').toUpperCase() === 'LISTO_ENTREGA' && (
                           <button
-                            onClick={() => handleCambiarEstadoPedido(ped.idPedido, 'ENTREGADO')}
-                            className="bg-amber-500 hover:bg-amber-400 text-slate-950 px-3 py-1.5 rounded-lg text-xs font-black flex items-center gap-1"
+                            onClick={() => handleCambiarEstadoPedido(ped.idPedido || ped.id, 'ENTREGADO')}
+                            className="bg-amber-500 hover:bg-amber-400 text-slate-950 px-3 py-1.5 rounded-lg text-xs font-black flex items-center gap-1 shadow-sm transition-all"
                           >
                             <span>✅</span>
                             <span>Entregar</span>
                           </button>
                         )}
 
-                        {ped.estado === 'ENTREGADO' && (
+                        {(ped.estado || '').toUpperCase() === 'ENTREGADO' && (
                           <span className="text-xs font-bold text-emerald-400 flex items-center gap-1">
                             <span>✓ Entregado</span>
                           </span>
@@ -1298,8 +1372,10 @@ export default function CafeteriaAdmin() {
               {pedidos.length === 0 && (
                 <div className="col-span-full py-16 text-center text-slate-500">
                   <span className="text-5xl block mb-2 opacity-50">📋</span>
-                  <p className="text-base font-bold text-slate-400">No hay pedidos registrados para este día</p>
-                  <p className="text-xs text-slate-600 mt-1">Los pedidos anticipados que realicen los padres aparecerán aquí en tiempo real.</p>
+                  <p className="text-base font-bold text-slate-400">No hay pedidos registrados para este filtro</p>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Puedes hacer clic en el botón <strong className="text-amber-400">"Todas"</strong> para ver comandas de cualquier fecha.
+                  </p>
                 </div>
               )}
             </div>
