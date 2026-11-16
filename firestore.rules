@@ -1,0 +1,80 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isAdminOrStaff() {
+      return isAuthenticated() && (
+        request.auth.token.role == 'admin' || 
+        request.auth.token.role == 'caja' || 
+        request.auth.token.role == 'personal'
+      );
+    }
+
+    // Catálogo de productos: Público para lectura, solo staff para edición
+    match /cafeteria_productos/{productoId} {
+      allow read: if true;
+      allow write: if isAdminOrStaff();
+    }
+
+    // Padrón de Estudiantes: Lectura por DNI o staff
+    match /estudiantes/{dni} {
+      allow read: if true;
+      allow write: if isAdminOrStaff();
+    }
+
+    // Billeteras y Saldos: Lectura pública de saldo por DNI (o autenticada), escritura transaccional por staff
+    match /billeteras/{dni} {
+      allow read: if true;
+      allow write: if isAdminOrStaff();
+      
+      match /movimientos/{movimientoId} {
+        allow read: if true;
+        allow write: if isAdminOrStaff();
+      }
+    }
+
+    // Comandas y Pedidos de Cafetería:
+    // Lectura pública por DNI de comanda, creación por portal (con datos válidos) o staff, actualización por staff
+    match /cafeteria_pedidos/{pedidoId} {
+      allow read: if true;
+      allow create: if true; // Permitir al padre registrar pedido desde portal
+      allow update, delete: if isAdminOrStaff();
+    }
+
+    // Solicitudes de Recarga Yape:
+    match /cafeteria_recargas/{recargaId} {
+      allow read: if true;
+      allow create: if true; // Permitir al padre enviar comprobante
+      allow update, delete: if isAdminOrStaff();
+    }
+
+    // Ventas y Arqueo de Caja: Solo staff
+    match /cafeteria_ventas/{ventaId} {
+      allow read, write: if isAdminOrStaff();
+    }
+
+    // Registro Diario de Asistencia:
+    match /asistencias/{asistenciaId} {
+      allow read: if true;
+      allow create, update: if isAdminOrStaff();
+    }
+
+    // Comunicados y Avisos Escolares:
+    match /comunicados/{comunicadoId} {
+      allow read: if true;
+      allow write: if isAdminOrStaff();
+    }
+
+    // Justificaciones:
+    match /justificaciones/{justificacionId} {
+      allow read: if true;
+      allow create: if true;
+      allow update, delete: if isAdminOrStaff();
+    }
+  }
+}

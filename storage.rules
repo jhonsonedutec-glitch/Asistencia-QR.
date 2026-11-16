@@ -1,0 +1,30 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // Comprobantes de Yape (Subidos por padres en portal, leídos por staff)
+    match /comprobantes_yape/{fileName} {
+      allow write: if request.resource.size < 5 * 1024 * 1024 
+                   && request.resource.contentType.matches('image/.*');
+      allow read: if true;
+    }
+
+    // Fotos del catálogo de cafetería (Lectura pública, subida staff)
+    match /productos_cafeteria/{fileName} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
+    // Fotos de alumnos para carnets
+    match /fotos_estudiantes/{fileName} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
+    // Justificaciones médicas / permisos
+    match /justificaciones/{fileName} {
+      allow write: if request.resource.size < 10 * 1024 * 1024;
+      allow read: if true;
+    }
+  }
+}

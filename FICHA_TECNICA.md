@@ -9,7 +9,7 @@
 | Parámetro | Detalle |
 | :--- | :--- |
 | **Nombre del Sistema** | Sistema Escolar Integral IEP MILLENIUM |
-| **Versión Actual** | v2.5.0 (Módulo Cafetería "Las Palmeras" & Lonchera Digital) |
+| **Versión Actual** | v2.6.0 (Preparación de Arquitectura Firebase & Respaldo) |
 | **Última Actualización** | 15 de Noviembre de 2026 |
 | **Tipo de Aplicación** | Aplicación Web Progresiva / SPA (Single Page Application) |
 | **Sede / Ubicación** | 29 de Agosto N° 169 - Bagua - Capital, Amazonas, Perú |
@@ -211,6 +211,15 @@ Almacena cada transacción completada en el POS o por comanda entregada, con el 
 ---
 
 ## 6. Control de Versiones y Registro Histórico de Cambios (Changelog)
+
+### [v2.6.0] - 15/11/2026
+* **Respaldo de Seguridad Integral:** Se generó una copia fiel y completa del código fuente, configuraciones y documentación en `D:\Trabajos de Programacion\Copias originales de Proyectos\Asistencia-QR-BACKUP-2026-11-15\`.
+* **Ruta de Migración a Firebase:**
+  * Creación del documento de arquitectura [RUTA_MIGRACION_FIREBASE.md](file:///d:/Trabajos%20de%20Programacion/Asistencia-QR.-main/Asistencia-QR.-main/RUTA_MIGRACION_FIREBASE.md) con el diseño de 6 fases para migrar de Google Sheets a Cloud Firestore, Auth, Storage y Hosting.
+  * Mapeo de datos NoSQL de 9 colecciones (`estudiantes`, `billeteras`, `asistencias`, `cafeteria_productos`, `cafeteria_pedidos`, `cafeteria_recargas`, `cafeteria_ventas`, `justificaciones`, `comunicados`).
+  * Scaffolding de infraestructura: archivos de reglas `firestore.rules`, `storage.rules`, índices `firestore.indexes.json` y configuración `firebase.json`.
+  * Script inicial de migración de datos por lotes: `scripts/migrar_sheets_a_firestore.js`.
+  * Plantilla modular del cliente en `frontend/src/services/firebase.example.js`.
 
 ### [v2.5.1] - 15/11/2026
 * **Módulo Cafetería (Despacho Inteligente en POS y Comandas):**

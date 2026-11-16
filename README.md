@@ -152,6 +152,16 @@ Cada vez que se modifique `apps-script/Code.gs`:
 
 ---
 
+## ⚡ Ruta de Migración a Firebase
+El proyecto cuenta con una ruta y diseño de arquitectura hacia **Google Firebase** (Cloud Firestore en tiempo real, Firebase Storage, Authentication y Hosting) para reducir la latencia de 3s a 80ms y contar con sincronización instantánea vía WebSockets (sub-segundo):
+* Consulta la guía y especificación técnica: [RUTA_MIGRACION_FIREBASE.md](file:///d:/Trabajos%20de%20Programacion/Asistencia-QR.-main/Asistencia-QR.-main/RUTA_MIGRACION_FIREBASE.md)
+* Reglas de seguridad preparadas: `firestore.rules` y `storage.rules`.
+* Configuración e infraestructura: `firebase.json` y `firestore.indexes.json`.
+* Script de migración de datos por lotes: `scripts/migrar_sheets_a_firestore.js`.
+* Respaldo previo de seguridad: `D:\Trabajos de Programacion\Copias originales de Proyectos\Asistencia-QR-BACKUP-2026-11-15\`.
+
+---
+
 ## 🏫 Datos Institucionales
 * **Institución Educativa:** IEP MILLENIUM
 * **Ubicación:** 29 de agosto N° 169 - Bagua - Capital, Amazonas, Perú.

@@ -1,0 +1,21 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "cafeteria_pedidos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "fechaEntrega", "order": "DESCENDING" },
+        { "fieldPath": "estado", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "asistencias",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "fecha", "order": "DESCENDING" },
+        { "fieldPath": "nivel", "order": "ASCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}
